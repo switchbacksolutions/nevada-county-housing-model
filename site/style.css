@@ -95,7 +95,11 @@ button { font: inherit; cursor: pointer; }
 .control-label { font-size: 13px; color: var(--text-secondary); }
 .slider { min-width: min(360px, 100%); }
 .slider-row { display: flex; align-items: center; gap: 12px; }
-.slider input { flex: 1; accent-color: var(--series-1); min-height: 24px; }
+.slider-track { position: relative; flex: 1; display: flex; align-items: center; }
+.slider input { flex: 1; width: 100%; position: relative; z-index: 1; background: transparent; accent-color: var(--series-1); min-height: 24px; }
+.slider input:disabled { opacity: 0.45; }
+.slider-shade { position: absolute; top: 50%; height: 8px; margin-top: -4px; background: color-mix(in srgb, var(--series-4) 55%, transparent); border-radius: 4px; pointer-events: none; }
+.support-note { color: var(--text-secondary); font-size: 14px; margin: 0 0 12px; min-height: 1.4em; }
 .slider output { font-weight: 650; min-width: 4.5em; font-variant-numeric: tabular-nums; }
 .segmented { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .segmented button {

@@ -13,7 +13,7 @@ const signed = (v, digits = 1) => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(
 const signedUsd = (v) => (v >= 0 ? "+" : "−") + usd(Math.abs(v));
 const pct = (v, digits = 1) => signed(v, digits) + "%";
 
-const state = { growth: 0.4, model: "peer" };
+const state = { growth: 0, model: "peer", path: null };
 let DATA;
 
 function h(tag, attrs = {}, parent, text) {
@@ -205,14 +205,32 @@ function scenarioRows(growth, model) {
   );
 }
 
+// A path preset (state.path) replaces the constant rate on the slider.
+function activePath() {
+  return state.path ? DATA.scenario_paths[state.path] : null;
+}
+
+function pathAverage(path) {
+  return 100 * Math.expm1(path.growth.reduce((a, g) => a + Math.log1p(g), 0) / path.growth.length);
+}
+
 function renderExplorer() {
-  const rows = scenarioRows(state.growth, state.model);
+  const path = activePath();
+  const rows = path ? path[state.model] : scenarioRows(state.growth, state.model);
   const flat = scenarioRows(0, state.model);
+  const growth = path ? pathAverage(path) : state.growth;
+  const rateLabel = path ? "State projection" : `${pct(growth)}/yr population`;
   const years = Array.from({ length: DATA.horizon + 1 }, (_, i) => DATA.base_year + i);
   const end = DATA.base_year + DATA.horizon;
-  document.getElementById("growth-out").textContent = pct(state.growth) + "/yr";
+  document.getElementById("growth-out").textContent = path ? "State projection" : pct(state.growth) + "/yr";
+  const outside = !path && (state.growth < DATA.support.lo || state.growth > DATA.support.hi);
+  document.getElementById("support-note").textContent = outside
+    ? "Few California counties sustained this rate for a decade. Treat this as a stretch, not a scenario."
+    : "";
 
-  const popChange = 100 * ((1 + state.growth / 100) ** DATA.horizon - 1);
+  const popChange = path
+    ? 100 * (path.growth.reduce((a, g) => a * (1 + g), 1) - 1)
+    : 100 * ((1 + state.growth / 100) ** DATA.horizon - 1);
   const readouts = document.getElementById("readouts");
   readouts.replaceChildren();
   for (const city of DATA.cities) {
@@ -242,7 +260,7 @@ function renderExplorer() {
       title: city,
       subtitle: `Typical home value, ${DATA.base_year} dollars`,
       legendItems: [
-        { name: `${pct(state.growth)}/yr population`, color },
+        { name: rateLabel, color },
         { name: "90% range", color, kind: "band" },
       ],
       height: 300,
@@ -254,7 +272,7 @@ function renderExplorer() {
         band: years.map((yr, i) => ({ x: yr, lo: r.p5[i], hi: r.p95[i] })),
         endLabel: usdK(r.median.at(-1)),
       }],
-      ref: { y: DATA.base_values[city], label: "Flat population", labelAbove: state.growth < 0 },
+      ref: { y: DATA.base_values[city], label: "Flat population", labelAbove: growth < 0 },
       xTicks: years.filter((yr) => (yr - DATA.base_year) % 2 === 0),
       tooltip: (yr) => {
         const i = yr - DATA.base_year;
@@ -267,44 +285,61 @@ function renderExplorer() {
     });
   }
 
-  const presets = [-0.5, 0, 0.4, 1, 2, 3];
+  const tableRow = (label, r) => [label, ...DATA.cities.flatMap((c) => [usd(r[c].median.at(-1)), pct(100 * (r[c].median.at(-1) / DATA.base_values[c] - 1))])];
   table(
     document.getElementById("explorer-table"),
-    ["Growth per year", ...DATA.cities.flatMap((c) => [`${c} ${end}`, "Change"])],
-    presets.map((g) => {
-      const r = scenarioRows(g, state.model);
-      return [pct(g) + "/yr", ...DATA.cities.flatMap((c) => [usd(r[c].median.at(-1)), pct(100 * (r[c].median.at(-1) / DATA.base_values[c] - 1))])];
-    }),
+    ["Scenario", ...DATA.cities.flatMap((c) => [`${c} ${end}`, "Change"])],
+    [
+      ...DATA.presets.map((p) => tableRow(`${p.label} (${pct(p.growth, 2)}/yr)`, scenarioRows(p.growth, state.model))),
+      tableRow(DATA.scenario_paths.dof.label, DATA.scenario_paths.dof[state.model]),
+    ],
     [1, 2, 3, 4],
   );
 }
 
 function setupControls() {
   const slider = document.getElementById("growth");
-  slider.addEventListener("input", () => {
-    state.growth = +slider.value;
-    syncPresets();
-    renderExplorer();
-  });
+  const [min, max] = [+slider.min, +slider.max];
+  const edge = (v) => Math.min(100, Math.max(0, (100 * (v - min)) / (max - min)));
+  const shade = (from, to) => h("div", { class: "slider-shade", style: `left:${from}%;width:${to - from}%` }, document.getElementById("slider-track"));
+  shade(0, edge(DATA.support.lo));
+  shade(edge(DATA.support.hi), 100);
 
   const presetEl = document.getElementById("presets");
-  const trendRate = Math.round(DATA.trend_growth * 1000) / 10;
-  const presets = [["Decline", -0.5], ["Flat", 0], [`Trend ${pct(trendRate)}`, trendRate], ["Growth", 1], ["Fast", 2]];
-  for (const [label, g] of presets) {
-    const b = h("button", { type: "button", "aria-pressed": "false", "data-g": g }, presetEl, label);
+  // The grid step is 0.1, so a preset is "pressed" when it snaps to the same grid point as the slider.
+  const snap = (g) => Math.round(g * 10);
+  const buttons = DATA.presets.map((p) => {
+    const b = h("button", { type: "button", "aria-pressed": "false" }, presetEl, `${p.label} ${pct(p.growth, 2)}`);
     b.addEventListener("click", () => {
-      state.growth = g;
-      slider.value = g;
-      syncPresets();
-      renderExplorer();
+      state.path = null;
+      state.growth = p.growth;
+      slider.value = p.growth;
+      sync();
     });
+    return [b, p];
+  });
+  const pathBtn = h("button", { type: "button", "aria-pressed": "false" }, presetEl, "State projection");
+  pathBtn.addEventListener("click", () => {
+    state.path = "dof";
+    sync();
+  });
+
+  function sync() {
+    for (const [b, p] of buttons) b.setAttribute("aria-pressed", String(!state.path && snap(p.growth) === snap(state.growth)));
+    pathBtn.setAttribute("aria-pressed", String(!!state.path));
+    slider.disabled = !!state.path;
+    slider.setAttribute("aria-disabled", String(!!state.path));
+    renderExplorer();
   }
-  function syncPresets() {
-    for (const b of presetEl.children) b.setAttribute("aria-pressed", String(+b.dataset.g === state.growth));
-  }
-  state.growth = trendRate;
-  slider.value = trendRate;
-  syncPresets();
+
+  slider.addEventListener("input", () => {
+    state.path = null;
+    state.growth = +slider.value;
+    sync();
+  });
+  state.growth = DATA.presets.find((p) => p.key === "recent").growth;
+  slider.value = state.growth;
+  sync();
 
   const modelEl = document.getElementById("model-choice");
   for (const [label, key] of [["Peer counties", "peer"], ["All counties", "all"]]) {

@@ -72,15 +72,35 @@ def fit_city(dl_city: pd.Series, dl_county: pd.Series):
     return sm.OLS(d.iloc[:, 0], sm.add_constant(d["county"])).fit(cov_type="HAC", cov_kwds={"maxlags": 2})
 
 
-def scenarios(p: pd.DataFrame) -> dict[str, float]:
+def scenarios(p: pd.DataFrame) -> list[dict]:
+    """Constant-growth presets; growth is a fraction per year."""
     pop = p[p["fips"] == NEVADA].set_index("year")["population"]
-    trend = (pop.loc[BASE_YEAR] / pop.loc[2000]) ** (1 / (BASE_YEAR - 2000)) - 1
-    return {
-        "Decline (-0.5%/yr)": -0.005,
-        f"2000-{BASE_YEAR} trend ({trend:+.2%}/yr)": trend,
-        "Growth (+1.0%/yr)": 0.01,
-        "Fast growth (+2.0%/yr)": 0.02,
-    }
+
+    def cagr(start: int) -> float:
+        return (pop.loc[BASE_YEAR] / pop.loc[start]) ** (1 / (BASE_YEAR - start)) - 1
+
+    return [
+        {"key": "decline", "label": "Decline", "growth": -0.005},
+        {"key": "flat", "label": "Flat", "growth": 0.0},
+        {"key": "recent", "label": f"Recent 2020-{BASE_YEAR}", "growth": cagr(2020)},
+        {"key": "longrun", "label": f"Long-run 2000-{BASE_YEAR}", "growth": cagr(2000)},
+        {"key": "growth", "label": "Growth", "growth": 0.01},
+    ]
+
+
+def support(p: pd.DataFrame) -> dict:
+    """Range of 10-year average county growth (percent per year); the slider shades values outside it."""
+    win = p.set_index("year").groupby("fips")["dlpop"].rolling(10).mean().rename("avg").reset_index()
+    # A window ending in year e starts in e - 9; start years 2001-2015 keep every window complete.
+    win = win[win["year"].between(2010, 2024)].dropna(subset=["avg"])
+    lo, hi = np.percentile(100 * win["avg"], [5, 95])
+    return {"lo": round(lo, 2), "hi": round(hi, 2), "rule": "5th to 95th percentile of 10-year average county growth, 2001-2024"}
+
+
+def dof_path(dof: pd.DataFrame) -> np.ndarray:
+    """Annual Nevada County growth rates from BASE_YEAR to BASE_YEAR + HORIZON in the DOF P-2A projection."""
+    pop = dof[dof["fips"] == NEVADA].set_index("year")["population"].loc[BASE_YEAR : BASE_YEAR + HORIZON]
+    return (pop.iloc[1:].values / pop.iloc[:-1].values) - 1
 
 
 def city_draws(cities) -> dict[str, np.ndarray]:
@@ -124,7 +144,14 @@ def coef_json(res) -> list[dict]:
     ]
 
 
-def export_site(p, z, county, county_lag, all_fits, cities, curve, imps, cd):
+def value_band(z, city: str, eff: np.ndarray) -> dict[str, list[float]]:
+    """Median and 90% range of the city value path, with the base-year value first, rounded to $100."""
+    v = z.loc[BASE_YEAR, city] * np.exp(np.hstack([np.zeros((len(eff), 1)), eff]))
+    lo, med, hi = np.percentile(v, [5, 50, 95], axis=0).round(-2)
+    return {"median": med.tolist(), "p5": lo.tolist(), "p95": hi.tolist()}
+
+
+def export_site(p, z, county, county_lag, all_fits, cities, curve, imps, cd, dof):
     """Write site/data.json: history, county comparison, model summary, and a scenario grid for the explorer."""
     names = pd.read_csv(DATA / "ca_county_names.csv", dtype={"fips": str}).set_index("fips")["name"]
     nev = p[p["fips"] == NEVADA].set_index("year")
@@ -155,13 +182,22 @@ def export_site(p, z, county, county_lag, all_fits, cities, curve, imps, cd):
         })
 
     grid = []
-    for g in np.round(np.arange(-1.0, 3.01, 0.1), 1):
+    for g in np.round(np.arange(-1.0, 2.01, 0.1), 1):
         for model_name, imp in imps.items():
             eff = population_effect(imp, cd, np.full(HORIZON, g / 100))
             for city in CITIES:
-                v = z.loc[BASE_YEAR, city] * np.exp(np.hstack([np.zeros((N_BOOT, 1)), eff[city]]))
-                lo, med, hi = np.percentile(v, [5, 50, 95], axis=0).round(-2)
-                grid.append({"growth": float(g), "model": model_name, "city": city, "median": med.tolist(), "p5": lo.tolist(), "p95": hi.tolist()})
+                grid.append({"growth": float(g), "model": model_name, "city": city, **value_band(z, city, eff[city])})
+
+    path = dof_path(dof)
+    dof_export = {
+        "label": "State projection (DOF P-2A)",
+        "vintage": json.loads((DATA / "dof_p2a_county.meta.json").read_text())["vintage"],
+        "growth": np.round(path, 5).tolist(),
+        **{
+            model_name: {city: value_band(z, city, eff[city]) for city in CITIES}
+            for model_name, eff in ((m, population_effect(imps[m], cd, path)) for m in ("peer", "all"))
+        },
+    }
 
     # Two decimals, so the site matches results.md.
     elasticity = {
@@ -177,7 +213,9 @@ def export_site(p, z, county, county_lag, all_fits, cities, curve, imps, cd):
         "horizon": HORIZON,
         "cities": CITIES,
         "base_values": {city: round(z.loc[BASE_YEAR, city]) for city in CITIES},
-        "trend_growth": round(list(scenarios(p).values())[1], 5),
+        "support": support(p),
+        "presets": [{"key": sc["key"], "label": sc["label"], "growth": round(100 * sc["growth"], 2)} for sc in scenarios(p)],
+        "scenario_paths": {"dof": dof_export},
         "headline": {"set": "peer", "max_pop": PEER_MAX_POP, "counties": county.sample["fips"].nunique(), **elasticity["peer_same_year"], "lp10": lp10},
         "elasticity": elasticity,
         "passthrough": {
@@ -295,24 +333,28 @@ def main():
     hs = range(HORIZON)
     imps = {"peer": lp_draws(p, "dlpop", peers, hs, N_BOOT), "all": lp_draws(p, "dlpop", None, hs, N_BOOT)}
     cd = city_draws(cities)
-    effects = {name: population_effect(imps["peer"], cd, np.full(HORIZON, g)) for name, g in scenarios(p).items()}
-    effects_all = {name: population_effect(imps["all"], cd, np.full(HORIZON, g)) for name, g in scenarios(p).items()}
+    dof = pd.read_csv(DATA / "dof_p2a_county.csv", dtype={"fips": str})
+    paths = {sc["label"]: np.full(HORIZON, sc["growth"]) for sc in scenarios(p)}
+    paths["State projection (DOF P-2A)"] = dof_path(dof)
+    effects = {name: population_effect(imps["peer"], cd, g) for name, g in paths.items()}
+    effects_all = {name: population_effect(imps["all"], cd, g) for name, g in paths.items()}
     plot_history(p, z)
-    plot_scenarios(z, effects)
-    export_site(p, z, county, county_lag, all_fits, cities, curve, imps, cd)
+    plot_scenarios(z, {k: v for k, v in effects.items() if not k.startswith(("Flat", "State"))})
+    export_site(p, z, county, county_lag, all_fits, cities, curve, imps, cd, dof)
 
     rows = [
         f"| Scenario | 10-yr population change | City | {BASE_YEAR + HORIZON} value | Effect vs. flat population | 90% range | All-counties effect |",
         "|---|---:|---|---:|---:|---|---:|",
     ]
-    for (name, eff), eff_all, g in zip(effects.items(), effects_all.values(), scenarios(p).values()):
+    for (name, eff), eff_all, g in zip(effects.items(), effects_all.values(), paths.values()):
+        label = name if name.startswith("State") else f"{name} ({g[0]:+.2%}/yr)"
         for city in CITIES:
             base = z.loc[BASE_YEAR, city]
             dollars = base * (np.exp(eff[city][:, -1]) - 1)
             lo, med, hi = np.percentile(dollars, [5, 50, 95])
             med_all = base * (np.exp(np.median(eff_all[city][:, -1])) - 1)
             rows.append(
-                f"| {name} | {(1 + g) ** HORIZON - 1:+.1%} | {city} | ${base + med:,.0f} | "
+                f"| {label} | {np.prod(1 + g) - 1:+.1%} | {city} | ${base + med:,.0f} | "
                 f"{med / base:+.1%} (${med:+,.0f}) | ${lo:+,.0f} to ${hi:+,.0f} | {med_all / base:+.1%} (${med_all:+,.0f}) |"
             )
 
