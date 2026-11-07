@@ -27,6 +27,24 @@ HORIZON = 10
 DRAWS = 10_000
 N_BOOT = 1000  # county bootstrap resamples for the local projections
 
+# Labels for register rows shown on the history chart. Dates, not causes.
+SITE_EVENTS: dict[str, str] = {
+    "FIRE_2017_LOBO": "Lobo fire",
+    "FIRE_2017_MCCOURTNEY": "McCourtney fire",
+    "FIRE_2018_CAMP": "Camp fire",
+    "FIRE_2020_JONES": "Jones fire",
+    "FIRE_2021_RIVER": "River fire",
+    "MOR_2020_08_18": "Nonrenewal moratorium (Jones fire)",
+    "INS_2022_Q4_ALLSTATE_PAUSE": "Allstate pauses new policies",
+    "INS_2023_05_27_STATE_FARM_NEW_BUSINESS": "State Farm stops new policies",
+    "INS_2023_Q3_FARMERS_LIMIT": "Farmers limits new policies",
+    "INS_2024_03_20_STATE_FARM_NONRENEWAL": "State Farm nonrenewals",
+}
+MARKET_EVENTS = [
+    {"year": 2006, "date": "2006", "label": "Price peak", "kind": "market"},
+    {"year": 2012, "date": "2012", "label": "Price trough", "kind": "market"},
+]
+
 # Slots 1-4 of the dataviz reference palette (light mode), validated for adjacent lines.
 COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]
 INK, INK_2, GRID = "#0b0b0b", "#52514e", "#e4e3df"
@@ -41,7 +59,7 @@ LABELS = {
 }
 
 
-def load() -> tuple[pd.DataFrame, pd.DataFrame]:
+def load() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     nat = pd.read_csv(DATA / "national_annual.csv", index_col="year")
     deflator = nat["cpi"] / nat.loc[BASE_YEAR, "cpi"]  # real values are in BASE_YEAR dollars
 
@@ -64,7 +82,7 @@ def load() -> tuple[pd.DataFrame, pd.DataFrame]:
 
     z = pd.read_csv(DATA / "city_zhvi_annual.csv", index_col="year").loc[:BASE_YEAR]
     z_real = z.div(deflator.loc[z.index], axis=0)
-    return p, z_real
+    return p, z_real, z
 
 
 def fit_city(dl_city: pd.Series, dl_county: pd.Series):
@@ -151,7 +169,18 @@ def value_band(z, city: str, eff: np.ndarray) -> dict[str, list[float]]:
     return {"median": med.tolist(), "p5": lo.tolist(), "p95": hi.tolist()}
 
 
-def export_site(p, z, county, county_lag, all_fits, cities, curve, imps, cd, dof):
+def site_events() -> list[dict]:
+    """Chart events: two fixed market turns plus the labelled register rows."""
+    reg = pd.read_csv(DATA / "event_register.csv").set_index("event_id")
+    rows = []
+    for event_id, label in SITE_EVENTS.items():
+        date = reg.loc[event_id, "date_start"]
+        kind = "fire" if event_id.startswith("FIRE_") else "insurance"
+        rows.append({"year": int(date[:4]), "date": date, "label": label, "kind": kind})
+    return sorted(MARKET_EVENTS + rows, key=lambda e: (e["year"], e["date"]))
+
+
+def export_site(p, z, z_nominal, county, county_lag, all_fits, cities, curve, imps, cd, dof):
     """Write site/data.json: history, county comparison, model summary, and a scenario grid for the explorer."""
     names = pd.read_csv(DATA / "ca_county_names.csv", dtype={"fips": str}).set_index("fips")["name"]
     nev = p[p["fips"] == NEVADA].set_index("year")
@@ -163,6 +192,7 @@ def export_site(p, z, county, county_lag, all_fits, cities, curve, imps, cd, dof
             "population": round(nev.loc[y, "population"]),
             "county_hpi_real": round(real_hpi.get(y, np.nan), 2),
             **{city: round(z.loc[y, city]) for city in CITIES},
+            **{f"{city}_nominal": round(z_nominal.loc[y, city]) for city in CITIES},
         }
         for y in years
     ]
@@ -216,6 +246,7 @@ def export_site(p, z, county, county_lag, all_fits, cities, curve, imps, cd, dof
         "base_year": BASE_YEAR,
         "horizon": HORIZON,
         "cities": CITIES,
+        "events": site_events(),
         # ACS 2020-2024 window; the people translator divides residents by this.
         "persons_per_household": round(core["acs5_population"].sum() / core["acs5_households"].sum(), 2),
         "permits_latest": {"year": int(permits.index[-1]), "count": int(permits.iloc[-1])},
@@ -321,7 +352,7 @@ def coef_table(res) -> str:
 
 def main():
     OUT.mkdir(exist_ok=True)
-    p, z = load()
+    p, z, z_nominal = load()
 
     peers = peer_counties(p, PEER_MAX_POP)
     county = fit_panel(p, "dlpop", peers)
@@ -348,7 +379,7 @@ def main():
     effects_all = {name: population_effect(imps["all"], cd, g) for name, g in paths.items()}
     plot_history(p, z)
     plot_scenarios(z, {k: v for k, v in effects.items() if not k.startswith(("Flat", "State"))})
-    export_site(p, z, county, county_lag, all_fits, cities, curve, imps, cd, dof)
+    export_site(p, z, z_nominal, county, county_lag, all_fits, cities, curve, imps, cd, dof)
 
     rows = [
         f"| Scenario | 10-yr population change | City | {BASE_YEAR + HORIZON} value | Effect vs. flat population | 90% range | All-counties effect |",

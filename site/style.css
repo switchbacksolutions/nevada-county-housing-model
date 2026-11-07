@@ -132,6 +132,11 @@ button { font: inherit; cursor: pointer; }
 .direct-label { fill: var(--text-primary); font-size: 12px; }
 .ref-label { fill: var(--text-secondary); font-size: 12px; }
 .crosshair { stroke: var(--text-muted); stroke-width: 1; }
+.marker-line { stroke: var(--text-muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.marker-label { fill: var(--text-secondary); font-size: 11px; paint-order: stroke; stroke: var(--surface-1); stroke-width: 3px; stroke-linejoin: round; }
+.marker { cursor: default; }
+.history-control { margin: 0 0 10px; }
+.tt-note { margin: 4px 0 0; }
 
 .tooltip {
   position: fixed; z-index: 10; pointer-events: none; max-width: 280px;

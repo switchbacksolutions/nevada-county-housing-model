@@ -13,7 +13,7 @@ const signed = (v, digits = 1) => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(
 const signedUsd = (v) => (v >= 0 ? "+" : "−") + usd(Math.abs(v));
 const pct = (v, digits = 1) => signed(v, digits) + "%";
 
-const state = { growth: 0, model: "peer", path: null, value: 0 };
+const state = { growth: 0, model: "peer", path: null, value: 0, dollars: "real" };
 const VALUE_RANGE = [50_000, 20_000_000];
 let DATA;
 
@@ -49,12 +49,16 @@ function niceTicks(lo, hi, count = 5) {
   return { ticks, lo: ticks[0], hi: ticks.at(-1) };
 }
 
-// Tooltip: built with textContent only. Rows are [color, name, value].
+// Tooltip: built with textContent only. Rows are [color, name, value], or [text] for a plain line.
 const tip = document.getElementById("tooltip");
 function showTip(evt, title, rows) {
   tip.replaceChildren();
   h("p", { class: "tt-title" }, tip, title);
   for (const [color, name, value] of rows) {
+    if (name === undefined) {
+      h("p", { class: "tt-note" }, tip, color);
+      continue;
+    }
     const row = h("div", { class: "tt-row" }, tip);
     if (color) h("span", { class: "key-line", style: `background:${color}` }, row);
     h("strong", {}, row, value);
@@ -85,13 +89,41 @@ function legend(parent, items) {
 /**
  * Line chart with optional bands, a reference line, end labels and a crosshair tooltip.
  * series: [{name, color, points: [{x, y}], band?: [{x, lo, hi}], endLabel?}]
+ * markers: [{x, label, kind, rows}] dated events, drawn as dashed verticals with a tooltip of rows.
  */
+const MARKER_KINDS = {
+  market: { name: "Market turn", color: "--text-muted" },
+  fire: { name: "Wildfire", color: "--series-2" },
+  insurance: { name: "Insurance event", color: "--series-4" },
+};
+const LABEL_ROW = 13;
+const LABEL_ROWS_MAX = 5;
+const LABEL_CHAR_PX = 6.2;
+const clip = (text, max = 22) => (text.length > max ? text.slice(0, max - 1) + "…" : text);
+
+// Greedy row assignment: a label takes the first row whose last label ends before it starts.
+// A label that fits no row is dropped; its marker and tooltip stay.
+function layoutMarkerLabels(markers, x) {
+  const ends = [];
+  return [...markers].sort((a, b) => a.x - b.x).map((mk) => {
+    const left = x(mk.x) + 8;
+    const right = left + clip(mk.label).length * LABEL_CHAR_PX;
+    let row = ends.findIndex((e) => e < left);
+    if (row < 0 && ends.length < LABEL_ROWS_MAX) row = ends.length;
+    if (row >= 0) ends[row] = right + 6;
+    return { ...mk, row };
+  });
+}
 function lineChart(container, opts) {
-  const { series, yFormat, xFormat = String, tooltip, ref, height = 320, yDomain, xTicks, legendItems } = opts;
+  const { series, yFormat, xFormat = String, tooltip, ref, height: baseHeight = 320, yDomain, xTicks, legendItems, markers = [] } = opts;
   container.replaceChildren();
   if (opts.title) h("p", { class: "chart-title" }, container, opts.title);
   if (opts.subtitle) h("p", { class: "chart-sub" }, container, opts.subtitle);
   if (legendItems) legend(container, legendItems);
+  if (markers.length) {
+    const kinds = [...new Set(markers.map((mk) => mk.kind))];
+    legend(container, kinds.map((k) => ({ name: MARKER_KINDS[k].name, color: css(MARKER_KINDS[k].color), kind: "dot" })));
+  }
 
   const width = Math.max(container.clientWidth, 300);
   const m = { top: 12, right: opts.rightMargin ?? 64, bottom: 28, left: opts.leftMargin ?? 56 };
@@ -100,6 +132,10 @@ function lineChart(container, opts) {
   if (ref) allY.push(ref.y);
   const yt = niceTicks(...(yDomain || [Math.min(...allY), Math.max(...allY)]), 5);
   const x = linear([Math.min(...xs), Math.max(...xs)], [m.left, width - m.right]);
+  const placed = layoutMarkerLabels(markers, x);
+  const labelRows = Math.max(0, ...placed.map((mk) => mk.row + 1));
+  m.top += labelRows * LABEL_ROW;
+  const height = baseHeight + labelRows * LABEL_ROW;
   const y = linear([yt.lo, yt.hi], [height - m.bottom, m.top]);
 
   const svg = s("svg", { viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": opts.ariaLabel || opts.title || "" }, container);
@@ -163,6 +199,19 @@ function lineChart(container, opts) {
     evt.preventDefault();
   });
   hit.addEventListener("blur", () => (cross.setAttribute("visibility", "hidden"), hideTip()));
+
+  // Drawn last so the 12px hit strips sit above the crosshair area.
+  for (const mk of placed) {
+    const top = mk.row >= 0 ? 12 + mk.row * LABEL_ROW : m.top;
+    const color = css(MARKER_KINDS[mk.kind].color);
+    const g = s("g", { class: "marker" }, svg);
+    s("line", { class: "marker-line", x1: x(mk.x), x2: x(mk.x), y1: top, y2: height - m.bottom }, g);
+    s("circle", { cx: x(mk.x), cy: top, r: 3.5, fill: color }, g);
+    if (mk.row >= 0) s("text", { class: "marker-label", x: x(mk.x) + 8, y: top, "dominant-baseline": "middle" }, g, clip(mk.label));
+    s("rect", { x: x(mk.x) - 6, y: top - 6, width: 12, height: height - m.bottom - top + 6, fill: "transparent" }, g);
+    g.addEventListener("pointermove", (evt) => showTip(evt, xFormat(mk.x), mk.rows));
+    g.addEventListener("pointerleave", hideTip);
+  }
 }
 
 function table(container, headers, rows, numeric = []) {
@@ -235,11 +284,12 @@ function parseValue(text) {
   return v >= VALUE_RANGE[0] && v <= VALUE_RANGE[1] ? v : null;
 }
 
-// Hash keys: g growth %, m model, v home value, p preset key. Invalid values are ignored.
+// Hash keys: g growth %, m model, v home value, p preset key, d dollars. Invalid values are ignored.
 function readHash(presets) {
   const q = new URLSearchParams(location.hash.slice(1));
   const slider = document.getElementById("growth");
   if (["peer", "all"].includes(q.get("m"))) state.model = q.get("m");
+  if (q.get("d") === "nominal") state.dollars = "nominal";
   const key = q.get("p");
   if (key === "dof") state.path = "dof";
   else if (Object.hasOwn(presets, key)) state.growth = presets[key].growth;
@@ -369,6 +419,15 @@ function setupControls() {
       sync();
     });
   }
+  const dollarsEl = document.getElementById("dollars-choice");
+  for (const [label, key] of [["Today's dollars", "real"], ["Sticker price", "nominal"]]) {
+    const b = h("button", { type: "button", role: "radio", "data-d": key }, dollarsEl, label);
+    b.addEventListener("click", () => {
+      state.dollars = key;
+      sync();
+      renderHistory();
+    });
+  }
   const pathBtn = h("button", { type: "button", "aria-pressed": "false" }, presetEl, "State projection");
   pathBtn.addEventListener("click", () => {
     state.path = "dof";
@@ -378,6 +437,7 @@ function setupControls() {
   function writeHash() {
     const q = new URLSearchParams();
     if (state.model !== "peer") q.set("m", state.model);
+    if (state.dollars !== "real") q.set("d", state.dollars);
     if (state.path) q.set("p", state.path);
     else if (snap(state.growth) !== snap(defaultGrowth)) {
       q.set("g", String(Math.round(state.growth * 10) / 10));
@@ -392,6 +452,7 @@ function setupControls() {
   function sync() {
     for (const [b, p] of buttons) b.setAttribute("aria-pressed", String(!state.path && snap(p.growth) === snap(state.growth)));
     for (const c of modelEl.children) c.setAttribute("aria-checked", String(c.dataset.m === state.model));
+    for (const c of dollarsEl.children) c.setAttribute("aria-checked", String(c.dataset.d === state.dollars));
     slider.value = state.growth;
     writeHash();
     pathBtn.setAttribute("aria-pressed", String(!!state.path));
@@ -433,16 +494,36 @@ function setupControls() {
   sync();
 }
 
+const EVENT_DATE = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+
+// One marker per year: labels join with " · ", and the tooltip lists each event with its date.
+function historyMarkers() {
+  const byYear = new Map();
+  for (const e of DATA.events) byYear.set(e.year, [...(byYear.get(e.year) ?? []), e]);
+  return [...byYear].map(([year, events]) => ({
+    x: year,
+    kind: events[0].kind,
+    label: events.map((e) => e.label).join(" · "),
+    rows: events.map((e) => [css(MARKER_KINDS[e.kind].color), e.label, e.date.length > 4 ? EVENT_DATE.format(new Date(e.date)) : e.date]),
+  }));
+}
+
 function renderHistory() {
   const hist = DATA.history;
   const base = hist[0];
+  const sticker = state.dollars === "nominal";
   const names = { population: "Nevada County population", "Grass Valley": "Grass Valley home value", "Nevada City": "Nevada City home value" };
   const colors = { population: css("--series-1"), "Grass Valley": css("--series-2"), "Nevada City": css("--series-3") };
   const keys = Object.keys(names);
-  const idx = (r, k) => (100 * r[k]) / base[k];
+  const field = (k) => (sticker && k !== "population" ? `${k}_nominal` : k);
+  const idx = (r, k) => (100 * r[field(k)]) / base[field(k)];
+  const cities = keys.filter((k) => k !== "population");
   lineChart(document.getElementById("history-chart"), {
-    title: `Indexed to ${base.year} = 100, home values after inflation`,
+    title: sticker
+      ? `Indexed to ${base.year} = 100, home values at sticker price`
+      : `Indexed to ${base.year} = 100, home values after inflation`,
     legendItems: keys.map((k) => ({ name: names[k], color: colors[k] })),
+    markers: historyMarkers(),
     height: 360,
     rightMargin: 150,
     yFormat: (v) => v.toFixed(0),
@@ -454,14 +535,21 @@ function renderHistory() {
     xTicks: hist.map((r) => r.year).filter((yr) => yr % 4 === 1),
     tooltip: (yr) => {
       const r = hist.find((d) => d.year === yr);
-      return keys.map((k) => [colors[k], names[k], k === "population" ? r[k].toLocaleString("en-US") : usd(r[k])]);
+      const pop = [colors.population, names.population, r.population.toLocaleString("en-US")];
+      if (sticker) {
+        return [pop, ...cities.map((k) => [`In ${yr} a typical ${k} home listed at ${usd(r[`${k}_nominal`])}, which is ${usd(r[k])} in ${DATA.base_year} dollars.`])];
+      }
+      return [pop, ...cities.map((k) => [colors[k], `${names[k]}, ${DATA.base_year} dollars (sticker price then ${usd(r[`${k}_nominal`])})`, usd(r[k])])];
     },
   });
   table(
     document.getElementById("history-table"),
-    ["Year", "County population", "Grass Valley value", "Nevada City value"],
-    hist.map((r) => [r.year, r.population.toLocaleString("en-US"), usd(r["Grass Valley"]), usd(r["Nevada City"])]),
-    [1, 2, 3],
+    ["Year", "County population", "Grass Valley value", "Nevada City value", "Grass Valley sticker price", "Nevada City sticker price"],
+    hist.map((r) => [
+      r.year, r.population.toLocaleString("en-US"), usd(r["Grass Valley"]), usd(r["Nevada City"]),
+      usd(r["Grass Valley_nominal"]), usd(r["Nevada City_nominal"]),
+    ]),
+    [1, 2, 3, 4, 5],
   );
 }
 

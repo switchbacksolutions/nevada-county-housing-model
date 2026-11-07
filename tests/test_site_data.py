@@ -57,3 +57,11 @@ def test_translator_fields_present():
     data = json.loads((ROOT / "site/data.json").read_text())
     assert 2.0 < data["persons_per_household"] < 3.0
     assert data["permits_latest"]["count"] > 0 and data["population_latest"]["count"] > 90_000
+
+
+def test_events_and_nominal_exported():
+    data = json.loads((ROOT / "site/data.json").read_text())
+    kinds = {e["kind"] for e in data["events"]}
+    assert {"market", "fire", "insurance"} <= kinds
+    assert all(e["year"] >= 2001 for e in data["events"])
+    assert data["history"][0]["Grass Valley_nominal"] < data["history"][0]["Grass Valley"]
