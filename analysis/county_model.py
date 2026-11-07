@@ -178,3 +178,62 @@ def long_difference(p: pd.DataFrame, pop_col: str, h: int, counties: list[str] |
     X = sm.add_constant(pd.concat([d[["x"]], fe], axis=1))
     res = sm.OLS(d["y"], X).fit(cov_type="cluster", cov_kwds={"groups": d["fips"].astype("category").cat.codes.to_numpy()})
     return dict(b=float(res.params["x"]), se=float(res.bse["x"]), n=int(res.nobs))
+
+
+def _rolling_predict(p: pd.DataFrame, x_cols: list[str], T: int, h: int) -> pd.Series:
+    """Predicted cumulative growth over T+1..T+h by county, from a two-way FE fit on years <= T."""
+    fit = p[p["year"] <= T].dropna(subset=["dlp", *x_cols]).sort_values(["fips", "year"])
+    years = sorted(fit["year"].unique())
+    yd = (fit["year"].to_numpy()[:, None] == np.array(years[1:])[None, :]).astype(float)
+    X = np.column_stack([fit[x_cols].to_numpy(float), yd])
+    sizes = fit.groupby("fips", sort=False).size().to_numpy()
+    coef = _fe_slopes(fit["dlp"].to_numpy(float), X, sizes)
+    resid = fit["dlp"].to_numpy(float) - X @ coef
+    alpha = pd.Series(resid).groupby(fit["fips"].to_numpy(), sort=False).mean()
+
+    wide = {c: p.pivot(index="fips", columns="year", values=c).reindex(alpha.index) for c in x_cols if c != "dlp_lag"}
+    prev = p.pivot(index="fips", columns="year", values="dlp")[T].reindex(alpha.index)
+    total = pd.Series(0.0, index=alpha.index)
+    for t in range(T + 1, T + h + 1):
+        g = alpha.copy()
+        for name, b in zip(x_cols, coef):
+            g += b * (prev if name == "dlp_lag" else wide[name][t])
+        prev = g
+        total += g
+    return total
+
+
+def rolling_validation(p: pd.DataFrame, pop_col: str, counties: list[str] | None = None,
+                       first_test_year: int = 2015, horizons=(1, 5)) -> pd.DataFrame:
+    """Rolling-origin out-of-sample check of the cross-county ranking of cumulative price growth.
+
+    For each origin T the model is fit on years <= T and iterated forward h years using each county's actual
+    regressors. Predictions and actuals are demeaned across counties, so this scores the ranking, not the level.
+    """
+    if counties is not None:
+        p = p[p["fips"].isin(counties)]
+    lrp = p.pivot(index="fips", columns="year", values="lrp")
+    last = int(p["year"].max())
+    specs = {"full": ["dlp_lag", pop_col, "dlinc", "permits_pk_lag"], "no_population": ["dlp_lag", "dlinc", "permits_pk_lag"]}
+    rows = []
+    for h in horizons:
+        pooled: dict[str, list[tuple[np.ndarray, np.ndarray]]] = {m: [] for m in (*specs, "zero")}
+        for T in range(first_test_year - 1, last - h + 1):
+            actual = lrp[T + h] - lrp[T]
+            preds = {m: _rolling_predict(p, cols, T, h).reindex(actual.index) for m, cols in specs.items()}
+            ok = actual.notna()
+            for s in preds.values():
+                ok &= s.notna()
+            if ok.sum() < 3:
+                continue
+            a = (actual[ok] - actual[ok].mean()).to_numpy()
+            for m, s in preds.items():
+                s = s[ok]
+                pooled[m].append(((s - s.mean()).to_numpy(), a))
+            pooled["zero"].append((np.zeros(len(a)), a))
+        for m, pairs in pooled.items():
+            pred = np.concatenate([x for x, _ in pairs])
+            act = np.concatenate([y for _, y in pairs])
+            corr = float(np.corrcoef(pred, act)[0, 1]) if pred.std() > 0 else float("nan")
+            rows.append(dict(horizon=h, model=m, rmse=float(np.sqrt(np.mean((pred - act) ** 2))), corr=corr, n=len(act)))
+    return pd.DataFrame(rows)

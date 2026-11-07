@@ -77,6 +77,25 @@ Applied to a sustained 10-year path, the sum of the year 1 to 10 responses impli
 for peer counties and 2.25 for all counties, against 10-year long-difference coefficients of
 0.15 and 0.59.
 
+## Out-of-sample check
+
+For each origin year from 2014 on, the model is fit on earlier years only. It then predicts each county's
+cumulative real price change over the next 1 and 5 years, using the county's actual later population, income and permit
+data. Predictions and actual changes are both measured as deviations from the all-county mean for that origin, because
+year effects are unknown ahead of time. RMSE is in log points. The `zero` model predicts no deviation for every county.
+Pairs are the pooled county-origin pairs.
+
+| Years ahead | Model | Peer RMSE | Peer correlation | Peer pairs | All-county RMSE | All-county correlation | All-county pairs |
+|---:|---|---:|---:|---:|---:|---:|---:|
+| 1 | full | 0.027 | 0.14 | 270 | 0.026 | 0.34 | 550 |
+| 1 | no_population | 0.027 | 0.02 | 270 | 0.027 | 0.19 | 550 |
+| 1 | zero | 0.026 | n/a | 270 | 0.026 | n/a | 550 |
+| 5 | full | 0.063 | 0.31 | 162 | 0.085 | 0.38 | 330 |
+| 5 | no_population | 0.063 | 0.20 | 162 | 0.086 | -0.05 | 330 |
+| 5 | zero | 0.060 | n/a | 162 | 0.074 | n/a | 330 |
+
+This tests whether population growth helps rank counties' price growth ahead of time. It is not evidence of causation.
+
 ## Specification curve
 
 The same model under different samples and timing choices. The all-county same-year elasticity is 2.04.

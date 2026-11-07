@@ -135,6 +135,12 @@
       </p>
       <div class="card"><div id="spec-chart" class="chart"></div></div>
 
+      <h3>Out-of-sample check</h3>
+      <p>
+        For each origin year from <span id="val-start"></span> on, the model is fit on earlier years only and predicts each county's price change over the next 1 and 5 years, as a deviation from the all-county mean. The <em>zero</em> row predicts no deviation for every county. RMSE is in log points. Pairs are the pooled county-origin pairs. This tests whether population growth helps rank counties' price growth ahead of time. It is not evidence of causation.
+      </p>
+      <div id="val-table"></div>
+
       <h3>Limits</h3>
       <ul>
         <li>The model treats a population decline as the mirror image of growth. The data show no reliable difference between growth and decline.</li>

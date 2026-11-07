@@ -65,3 +65,11 @@ def test_events_and_nominal_exported():
     assert {"market", "fire", "insurance"} <= kinds
     assert all(e["year"] >= 2001 for e in data["events"])
     assert data["history"][0]["Grass Valley_nominal"] < data["history"][0]["Grass Valley"]
+
+
+def test_validation_exported_and_stated_without_causal_claim():
+    data = json.loads((ROOT / "site/data.json").read_text())
+    assert len(data["validation"]["peer"]) == len(data["validation"]["all"]) == 6
+    sentence = "This tests whether population growth helps rank counties' price growth ahead of time. It is not evidence of causation."
+    assert sentence in (ROOT / "output/results.md").read_text()
+    assert sentence in (ROOT / "site/index.html").read_text()

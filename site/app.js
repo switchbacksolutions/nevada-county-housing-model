@@ -722,6 +722,18 @@ function renderMethod() {
   }
 }
 
+function renderValidation() {
+  const v = DATA.validation;
+  document.getElementById("val-start").textContent = DATA.validation_first_origin;
+  const corr = (r) => (r.corr == null ? "n/a" : r.corr.toFixed(2));
+  table(document.getElementById("val-table"),
+    ["Years ahead", "Model", "Peer RMSE", "Peer correlation", "Peer pairs", "All-county RMSE", "All-county correlation", "All-county pairs"],
+    v.peer.map((r, i) => {
+      const a = v.all[i];
+      return [r.horizon, r.model, r.rmse.toFixed(3), corr(r), r.n.toLocaleString("en-US"), a.rmse.toFixed(3), corr(a), a.n.toLocaleString("en-US")];
+    }), [0, 2, 3, 4, 5, 6, 7]);
+}
+
 function renderSpecCurve() {
   rangeChart(document.getElementById("spec-chart"), DATA.spec_curve, "peer/same_year");
 }
@@ -734,6 +746,7 @@ function renderAll() {
   renderImpulse();
   renderMethod();
   renderSpecCurve();
+  renderValidation();
 }
 
 function setupTheme() {

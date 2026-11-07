@@ -103,3 +103,12 @@ def test_lp_conditions_on_later_growth():
     sizes = d.groupby("fips", sort=False).size().to_numpy()
     uncond = cm._fe_slopes(d["y"].to_numpy(), np.column_stack([d[cols].to_numpy(), years]), sizes)[0]
     assert uncond > cond + 1.0
+
+
+def test_rolling_validation_population_helps_when_it_drives_prices():
+    p = make_panel(n_c=60, T=30, b=2.0, rho=0.3, seed=3)
+    p["lrp"] = p.groupby("fips")["dlp"].cumsum()
+    v = cm.rolling_validation(p, "dlpop", first_test_year=2021, horizons=(1,))
+    full = v[(v.model == "full")].iloc[0]; nopop = v[(v.model == "no_population")].iloc[0]
+    assert full.rmse < nopop.rmse and full["corr"] > nopop["corr"]
+    assert set(v.model) == {"full", "no_population", "zero"}
