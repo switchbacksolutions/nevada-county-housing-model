@@ -2,6 +2,10 @@
 // Charts read colors from CSS variables, so they redraw on theme change instead of flipping.
 
 const SVG = "http://www.w3.org/2000/svg";
+const safeStorage = {
+  get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* private window */ } },
+};
 const css = (name) => getComputedStyle(document.body).getPropertyValue(name).trim();
 const usd = (v) => "$" + Math.round(v).toLocaleString("en-US");
 const usdK = (v) => "$" + Math.round(v / 1000).toLocaleString("en-US") + "k";
@@ -181,7 +185,7 @@ function renderTiles() {
   const { same_year: sy, lagged: lg } = DATA.elasticity;
   const pass = Object.values(DATA.passthrough).map((p) => p.coef);
   const tiles = [
-    ["Long-run price change for 1% more people", `+${lg.point.toFixed(1)}% to +${sy.point.toFixed(1)}%`, "Cautious and same-year estimates, after inflation"],
+    ["Long-run price change for 1% more people", `${sy.point.toFixed(1)}% same-year · ${lg.point.toFixed(1)}% lagged`, "Two timing assumptions, both associations, after inflation"],
     ["City prices follow the county", pass.map((v) => v.toFixed(2)).join(" / "), "Grass Valley / Nevada City change per 1% county change"],
     ...DATA.cities.map((c) => [`Typical ${c} home, ${DATA.base_year}`, usd(DATA.base_values[c]), "Zillow Home Value Index, yearly average"]),
   ];
@@ -302,7 +306,7 @@ function setupControls() {
   syncPresets();
 
   const modelEl = document.getElementById("model-choice");
-  for (const [label, key] of [["Same-year (higher)", "same_year"], ["Lagged (cautious)", "lagged"]]) {
+  for (const [label, key] of [["Same-year", "same_year"], ["Lagged", "lagged"]]) {
     const b = h("button", { type: "button", role: "radio", "aria-checked": String(state.model === key), "data-m": key }, modelEl, label);
     b.addEventListener("click", () => {
       state.model = key;
@@ -418,7 +422,7 @@ function renderCounties() {
 
 function renderImpulse() {
   const yrs = Array.from({ length: DATA.horizon + 1 }, (_, i) => i);
-  const spec = [["same_year", "Same-year estimate", css("--series-1")], ["lagged", "Lagged (cautious) estimate", css("--series-2")]];
+  const spec = [["same_year", "Same-year estimate", css("--series-1")], ["lagged", "Lagged estimate", css("--series-2")]];
   lineChart(document.getElementById("impulse-chart"), {
     title: "Cumulative change in real home prices after a one-time 1% population increase",
     legendItems: spec.flatMap(([, name, color]) => [{ name, color }]).concat([{ name: "90% range", color: css("--text-muted"), kind: "band" }]),
@@ -457,7 +461,7 @@ function renderMethod() {
 
   const el = document.getElementById("coef-tables");
   el.replaceChildren();
-  for (const [key, title] of [["same_year", "Same-year estimate"], ["lagged", "Lagged (cautious) estimate"]]) {
+  for (const [key, title] of [["same_year", "Same-year estimate"], ["lagged", "Lagged estimate"]]) {
     const box = h("div", {}, el);
     h("h4", {}, box, title);
     const div = h("div", {}, box);
@@ -487,7 +491,7 @@ function setupTheme() {
   btn.addEventListener("click", () => {
     const next = isDark() ? "light" : "dark";
     document.documentElement.dataset.theme = next;
-    localStorage.setItem("theme", next);
+    safeStorage.set("theme", next);
     label();
     renderAll();
   });

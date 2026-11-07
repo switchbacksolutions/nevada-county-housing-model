@@ -8,8 +8,10 @@
   <link rel="stylesheet" href="style.css">
   <script>
     // Apply a saved theme before first paint so the page does not flash.
-    const saved = localStorage.getItem("theme");
-    if (saved) document.documentElement.dataset.theme = saved;
+    try {
+      const saved = localStorage.getItem("theme");
+      if (saved) document.documentElement.dataset.theme = saved;
+    } catch {}
   </script>
 </head>
 <body class="viz-root">
@@ -112,16 +114,13 @@
 
       <h3>Two estimates, and why they differ</h3>
       <p>
-        Population and prices affect each other. People move toward jobs and amenities, and high prices push some people away.
-        The <em>same-year</em> estimate uses this year's population growth and can overstate the effect.
-        The <em>lagged</em> estimate uses last year's population growth, which this year's prices cannot have caused. It is the cautious estimate.
-        The real effect is probably between the two.
+        Population and prices move together, and the data cannot say which moves first. The <em>same-year</em> estimate pairs this year's population change with this year's price change. The <em>lagged</em> estimate pairs last year's population change with this year's price change. A placebo check shows that next year's population change predicts this year's prices nearly as well, so neither number is a causal effect or a bound on one. Both are associations under a timing choice.
       </p>
       <div class="coef-tables" id="coef-tables"></div>
 
       <h3>Limits</h3>
       <ul>
-        <li>The model treats a population decline as the mirror image of growth. In practice, declines often hit prices harder, because existing homes do not go away.</li>
+        <li>The model treats a population decline as the mirror image of growth. The data show no reliable difference between growth and decline.</li>
         <li>Census has no corrected 2010-2020 county population series. The model spreads the gap between the 2010s estimates and the 2020 Census over 2011-2019.</li>
         <li>Zillow city values cover all home types at the middle of the market. Individual neighborhoods and home types can move differently.</li>
       </ul>

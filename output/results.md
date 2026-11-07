@@ -20,8 +20,7 @@ Year fixed effects absorb statewide and national drivers such as mortgage rates.
 A county population that is 1% larger, sustained, goes with real home prices about 2.0% higher
 once price momentum plays out.
 
-Check with last year's population growth in place of this year's. This version is less exposed to
-prices that pull people in or push them out in the same year:
+The same model with last year's population growth in place of this year's, a second timing assumption:
 
 | Term | Coefficient | 90% CI | p-value |
 |---|---:|---|---:|
@@ -33,6 +32,34 @@ prices that pull people in or push them out in the same year:
 55 counties, years 2002-2024, n = 1265. County and year fixed effects. Standard errors clustered by county and year.
 
 Long-run elasticity with lagged population: 1.07 (90% interval 0.49 to 1.64).
+
+## Placebo check
+
+Next year's population growth, which this year's prices cannot respond to, is included as a
+regressor. If it predicts this year's price growth, the population coefficient reflects shared
+local shocks (jobs, amenities, remote work) rather than a timing story.
+
+| Term | Coefficient | 90% CI | p-value |
+|---|---:|---|---:|
+| Last year's real price growth | 0.376 | 0.229 to 0.522 | 0.000 |
+| Next year's population growth (placebo) | 0.928 | 0.540 to 1.316 | 0.000 |
+| Real per-capita income growth | -0.035 | -0.141 to 0.072 | 0.590 |
+| Last year's permits per 1,000 residents | -0.001 | -0.002 to 0.001 | 0.437 |
+
+55 counties, years 2001-2024, n = 1320. County and year fixed effects. Standard errors clustered by county and year.
+
+| Term | Coefficient | 90% CI | p-value |
+|---|---:|---|---:|
+| Last year's real price growth | 0.342 | 0.171 to 0.514 | 0.001 |
+| Population growth (log change) | 1.060 | 0.650 to 1.471 | 0.000 |
+| Real per-capita income growth | 0.014 | -0.098 to 0.126 | 0.834 |
+| Last year's permits per 1,000 residents | -0.002 | -0.004 to -0.000 | 0.085 |
+| Last year's population growth | 0.170 | -0.119 to 0.459 | 0.332 |
+| Next year's population growth (placebo) | 0.405 | 0.075 to 0.736 | 0.044 |
+
+55 counties, years 2002-2024, n = 1265. County and year fixed effects. Standard errors clustered by county and year.
+
+Neither timing choice is a bound on a causal effect. Both are associations.
 
 ## Stage 2: Nevada County to city pass-through
 
@@ -48,7 +75,7 @@ Annual log change in each city's real Zillow Home Value Index on the Nevada Coun
 Each scenario holds Nevada County population growth at a constant rate. Every other driver stays
 where it was in 2025, so the 2035 value is the 2025 value plus the population effect only.
 It is not a forecast of the market. Ranges come from 10,000 draws of the coefficients.
-The last column uses the lagged-population model, a more conservative estimate of the same effect.
+The last column uses the lagged-population model, the same association under the lagged timing assumption.
 
 | Scenario | 10-yr population change | City | 2035 value | Effect vs. flat population | 90% range | Lagged-model effect |
 |---|---:|---|---:|---:|---|---:|

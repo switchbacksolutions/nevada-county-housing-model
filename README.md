@@ -21,9 +21,10 @@ explorer, history, county comparison, and method).
 
 ## Limits
 
-- Population and prices affect each other. The same-year model can overstate the effect. The
-  lagged-population model gives roughly half the effect and is the conservative bound.
-- The effect is assumed symmetric. Durable housing usually makes declines hit prices harder.
+- Population and prices affect each other. Both timing versions of the model are associations,
+  not causal effects. A placebo with next year's population growth predicts prices nearly as
+  well as last year's.
+- The effect is assumed symmetric. A split by sign finds no reliable difference.
 - Census has no 2010-2020 intercensal county file. `fetch_data.py` spreads the 2020 estimate
   gap linearly over 2011-2019.
 

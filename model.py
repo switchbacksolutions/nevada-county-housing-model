@@ -30,6 +30,7 @@ LABELS = {
     "dlp_lag": "Last year's real price growth",
     "dlpop": "Population growth (log change)",
     "dlpop_lag": "Last year's population growth",
+    "dlpop_lead": "Next year's population growth (placebo)",
     "dlinc": "Real per-capita income growth",
     "permits_pk_lag": "Last year's permits per 1,000 residents",
 }
@@ -47,6 +48,7 @@ def load() -> tuple[pd.DataFrame, pd.DataFrame]:
     p["dlp_lag"] = p.groupby("fips")["dlp"].shift()
     p["dlpop"] = g["population"].transform(lambda s: np.log(s).diff())
     p["dlpop_lag"] = p.groupby("fips")["dlpop"].shift()
+    p["dlpop_lead"] = p.groupby("fips")["dlpop"].shift(-1)
     p["dlinc"] = g["income_pc"].transform(lambda s: np.log(s).diff()) - g["deflator"].transform(lambda s: np.log(s).diff())
     p["permits_pk_lag"] = (1000 * p["permits"] / p["population"]).groupby(p["fips"]).shift()
 
@@ -55,9 +57,9 @@ def load() -> tuple[pd.DataFrame, pd.DataFrame]:
     return p, z_real
 
 
-def fit_panel(p: pd.DataFrame, pop_col: str):
+def fit_panel(p: pd.DataFrame, pop_col: str, extra_cols: tuple[str, ...] = ()):
     """Two-way fixed-effects OLS with standard errors clustered by county and by year."""
-    x_cols = ["dlp_lag", pop_col, "dlinc", "permits_pk_lag"]
+    x_cols = ["dlp_lag", pop_col, "dlinc", "permits_pk_lag", *extra_cols]
     d = p.dropna(subset=["dlp", *x_cols]).copy()
     d["county_id"] = d["fips"].astype("category").cat.codes
     fe = pd.get_dummies(d[["fips", "year"]].astype(str), drop_first=True, dtype=float)
@@ -280,6 +282,8 @@ def main():
 
     county = fit_panel(p, "dlpop")
     county_lag = fit_panel(p, "dlpop_lag")
+    placebo = fit_panel(p, "dlpop_lead")
+    joint = fit_panel(p, "dlpop", ("dlpop_lag", "dlpop_lead"))
     nevada_dlp = p[p["fips"] == NEVADA].set_index("year")["dlp"]
     cities = {city: fit_city(np.log(z[city]).diff(), nevada_dlp) for city in CITIES}
 
@@ -329,12 +333,23 @@ Year fixed effects absorb statewide and national drivers such as mortgage rates.
 A county population that is 1% larger, sustained, goes with real home prices about {lr:.1f}% higher
 once price momentum plays out.
 
-Check with last year's population growth in place of this year's. This version is less exposed to
-prices that pull people in or push them out in the same year:
+The same model with last year's population growth in place of this year's, a second timing assumption:
 
 {coef_table(county_lag)}
 
 Long-run elasticity with lagged population: {lr2:.2f} (90% interval {lr2_lo:.2f} to {lr2_hi:.2f}).
+
+## Placebo check
+
+Next year's population growth, which this year's prices cannot respond to, is included as a
+regressor. If it predicts this year's price growth, the population coefficient reflects shared
+local shocks (jobs, amenities, remote work) rather than a timing story.
+
+{coef_table(placebo)}
+
+{coef_table(joint)}
+
+Neither timing choice is a bound on a causal effect. Both are associations.
 
 ## Stage 2: Nevada County to city pass-through
 
@@ -347,7 +362,7 @@ Annual log change in each city's real Zillow Home Value Index on the Nevada Coun
 Each scenario holds Nevada County population growth at a constant rate. Every other driver stays
 where it was in {BASE_YEAR}, so the {BASE_YEAR + HORIZON} value is the {BASE_YEAR} value plus the population effect only.
 It is not a forecast of the market. Ranges come from {DRAWS:,} draws of the coefficients.
-The last column uses the lagged-population model, a more conservative estimate of the same effect.
+The last column uses the lagged-population model, the same association under the lagged timing assumption.
 
 {scenario_table}
 
