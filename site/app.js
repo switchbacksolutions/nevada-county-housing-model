@@ -667,6 +667,8 @@ const SPEC_LABELS = {
   "all/drop_2020_2022": "All counties, without 2020-2022",
   "all/three_price_lags": "All counties, three price lags",
   "all/sign_split": "All counties, sign split (growth term)",
+  "all/components": "All counties, net migration rate",
+  "peer/components": "Peer counties, net migration rate",
 };
 
 /** Dot-and-range chart. rows: [{spec, lr, lr_lo, lr_hi}], one per line; the headline row is filled. */
@@ -736,6 +738,9 @@ function renderValidation() {
 
 function renderSpecCurve() {
   rangeChart(document.getElementById("spec-chart"), DATA.spec_curve, "peer/same_year");
+  const c = DATA.components.peer;
+  document.getElementById("spec-components").textContent =
+    `Splitting population growth into net migration and natural change (births minus deaths) gives a migration coefficient of ${c.b_mig.toFixed(2)} on the peer set; natural change, which cannot respond to this year's prices, has a coefficient of ${c.b_natural.toFixed(2)}.`;
 }
 
 function renderAll() {

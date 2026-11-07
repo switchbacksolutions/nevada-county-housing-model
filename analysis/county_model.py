@@ -27,6 +27,9 @@ SPECS: list[tuple[str, dict]] = [
     ("all/drop_2020_2022", dict(pop_col="dlpop", counties="all", years=None, drop_years=(2020, 2021, 2022), extra_cols=())),
     ("all/three_price_lags", dict(pop_col="dlpop", counties="all", years=None, extra_cols=("dlp_lag2", "dlp_lag3"))),
     ("all/sign_split", dict(pop_col="dlpop_pos", counties="all", years=None, extra_cols=("dlpop_neg",))),
+    # Natural change cannot respond to this year's prices, so b_pop here is the migration coefficient.
+    ("all/components", dict(pop_col="r_mig", counties="all", years=None, extra_cols=("r_natural",))),
+    ("peer/components", dict(pop_col="r_mig", counties="peer", years=None, extra_cols=("r_natural",))),
 ]
 
 

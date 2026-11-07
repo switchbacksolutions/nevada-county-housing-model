@@ -55,6 +55,8 @@ LABELS = {
     "dlpop": "Population growth (log change)",
     "dlpop_lag": "Last year's population growth",
     "dlpop_lead": "Next year's population growth (placebo)",
+    "r_mig": "Net migration rate",
+    "r_natural": "Natural change rate (births minus deaths)",
     "dlinc": "Real per-capita income growth",
     "permits_pk_lag": "Last year's permits per 1,000 residents",
 }
@@ -78,6 +80,9 @@ def load() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     p["dlp_lag2"] = p.groupby("fips")["dlp"].shift(2)
     p["dlp_lag3"] = p.groupby("fips")["dlp"].shift(3)
     p["dlpop_lead"] = p.groupby("fips")["dlpop"].shift(-1)
+    lag_pop = g["population"].shift()
+    p["r_natural"] = p["natural_change"] / lag_pop
+    p["r_mig"] = p["net_migration"] / lag_pop
     p["dlinc"] = g["income_pc"].transform(lambda s: np.log(s).diff()) - g["deflator"].transform(lambda s: np.log(s).diff())
     p["permits_pk_lag"] = (1000 * p["permits"] / p["population"]).groupby(p["fips"]).shift()
 
@@ -181,7 +186,7 @@ def site_events() -> list[dict]:
     return sorted(MARKET_EVENTS + rows, key=lambda e: (e["year"], e["date"]))
 
 
-def export_site(p, z, z_nominal, county, county_lag, all_fits, cities, curve, imps, cd, dof, validation):
+def export_site(p, z, z_nominal, county, county_lag, all_fits, cities, curve, comps, imps, cd, dof, validation):
     """Write site/data.json: history, county comparison, model summary, and a scenario grid for the explorer."""
     names = pd.read_csv(DATA / "ca_county_names.csv", dtype={"fips": str}).set_index("fips")["name"]
     nev = p[p["fips"] == NEVADA].set_index("year")
@@ -270,6 +275,11 @@ def export_site(p, z, z_nominal, county, county_lag, all_fits, cities, curve, im
         "history": history,
         "counties": {"start": start, "end": end, "rows": counties},
         "spec_curve": spec_rows,
+        "components": {
+            k: {"b_mig": round(r.params["r_mig"], 2), "b_natural": round(r.params["r_natural"], 2),
+                "lo_mig": round(r.conf_int(0.10).loc["r_mig", 0], 2), "hi_mig": round(r.conf_int(0.10).loc["r_mig", 1], 2)}
+            for k, r in comps.items()
+        },
         "validation": {k: [{**r, "corr": None if np.isnan(r["corr"]) else round(r["corr"], 3), "rmse": round(r["rmse"], 4)} for r in v.to_dict("records")] for k, v in validation.items()},
         "validation_first_origin": FIRST_TEST_YEAR - 1,
         "scenario_grid": grid,
@@ -363,6 +373,8 @@ def main():
     all_fits = (fit_panel(p, "dlpop"), fit_panel(p, "dlpop_lag"))
     curve = spec_curve(p, DRAWS)
     sign = fit_panel(p, "dlpop_pos", extra_cols=("dlpop_neg",))
+    comp_peer = fit_panel(p, "r_mig", peers, ("r_natural",))
+    comp_all = fit_panel(p, "r_mig", None, ("r_natural",))
     placebo = fit_panel(p, "dlpop_lead")
     joint = fit_panel(p, "dlpop", extra_cols=("dlpop_lag", "dlpop_lead"))
     nevada_dlp = p[p["fips"] == NEVADA].set_index("year")["dlp"]
@@ -383,7 +395,7 @@ def main():
     plot_history(p, z)
     plot_scenarios(z, {k: v for k, v in effects.items() if not k.startswith(("Flat", "State"))})
     validation = {k: rolling_validation(p, "dlpop", sel, FIRST_TEST_YEAR) for k, sel in (("peer", peers), ("all", None))}
-    export_site(p, z, z_nominal, county, county_lag, all_fits, cities, curve, imps, cd, dof, validation)
+    export_site(p, z, z_nominal, county, county_lag, all_fits, cities, curve, {"peer": comp_peer, "all": comp_all}, imps, cd, dof, validation)
 
     rows = [
         f"| Scenario | 10-yr population change | City | {BASE_YEAR + HORIZON} value | Effect vs. flat population | 90% range | All-counties effect |",
@@ -514,6 +526,21 @@ The peer-set same-year elasticity is {lr:.2f}.
 {curve_table}
 
 {sign_sentence}
+
+## Migration and natural change
+
+Population growth is split into net migration (domestic plus international) and natural change (births minus deaths),
+each as a share of last year's population. Both enter one fit. The first table is the peer set, the second is all counties.
+
+Peer counties:
+
+{coef_table(comp_peer)}
+
+All counties:
+
+{coef_table(comp_all)}
+
+Natural change (births minus deaths) does not respond to this year's prices. Net migration does. The migration coefficient is the association that matters for Nevada County, where natural change is negative.
 
 ## Placebo check
 

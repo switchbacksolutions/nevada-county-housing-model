@@ -42,7 +42,11 @@ def test_spec_curve_has_all_specs():
     p["dlp_lag3"] = p.groupby("fips")["dlp"].shift(3)
     p["dlpop_pos"] = p["dlpop"].clip(lower=0)
     p["dlpop_neg"] = p["dlpop"].clip(upper=0)
+    rng = np.random.default_rng(3)
+    p["r_mig"] = p["dlpop"] - 0.002 + rng.normal(0, 0.003, len(p))
+    p["r_natural"] = 0.002 + rng.normal(0, 0.001, len(p))
     curve = cm.spec_curve(p, n=200)
+    assert len(curve) == 12 and {"all/components", "peer/components"} <= set(curve["spec"])
     assert list(curve["spec"]) == [name for name, _ in cm.SPECS]
     assert (curve["lr_lo"] <= curve["lr"]).all() and (curve["lr"] <= curve["lr_hi"]).all()
 

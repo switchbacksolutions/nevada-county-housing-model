@@ -25,7 +25,7 @@ def test_results_and_data_json_agree_on_headline():
     text = (ROOT / "output/results.md").read_text()
     e = data["headline"]
     assert f"{e['point']:.2f}" in text and f"{e['hi']:.2f}" in text
-    assert len(data["spec_curve"]) == 10
+    assert len(data["spec_curve"]) == 12
 
 
 def _data():

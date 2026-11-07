@@ -1,14 +1,14 @@
 {
-  "panel_version": "s1-8c0157b10d02-d73d2bb7cf6b",
+  "panel_version": "s1-221056074f09-d6430bd5ec20",
   "schema_version": 1,
-  "git_sha": "8c0157b10d02229a1d58c9161afacd3596052893",
+  "git_sha": "221056074f09e52ba5aa1dbfa1479ebee64c7359",
   "git_dirty": true,
-  "input_hash": "d73d2bb7cf6b88d4b2ea6d1b1ccbc2337e38b1a6c1cec8ce7219683ac9ce3924",
+  "input_hash": "d6430bd5ec207cf96c851a2fb6c95bbe625b1f5b2fd87d03d3a0de0da7334bda",
   "build_command": "uv run python build_panel.py",
   "base_year": 2025,
   "output": {
     "path": "data/panel_zip_year.csv",
-    "sha256": "c4e1a338e494f2b6f164217050f35da13bcca97438c8f302b6087c4846d686d9",
+    "sha256": "b83e99cb07788bd04b264556b2a6b9929c96aef8399b2c22525bbdd372e4eb36",
     "rows": 6696,
     "columns": 112,
     "zctas": 248,
@@ -66,7 +66,7 @@
       }
     },
     "data/ca_county_panel.csv": {
-      "sha256": "64d8c0faadf9f43b71ebd1d4e0e29672dea00e7aa61dd62929af436f52175ba0",
+      "sha256": "3fb4a775ba52b62d6dc98840e9a0c74d8e69a34edcef5f54d9e09bed72f19a36",
       "rows": 3306,
       "produced_by": "uv run python fetch_data.py"
     },

@@ -33,6 +33,13 @@ POP_FILES = {
     "2010s": f"{CENSUS}/2010-2020/counties/totals/co-est2020-alldata.csv",
     "2020s": f"{CENSUS}/2020-2025/counties/totals/co-est2025-alldata.csv",
 }
+# Components of change: 2000-2009 from vintage 2009 (its 2000 column may cover only April to July), 2010-2019 from V2020,
+# 2020 onward from V2025. The V2025 file replaces V2020 for 2020, as for population.
+COMPONENT_FILES = [
+    (f"{CENSUS}/2000-2009/counties/totals/co-est2009-alldata.csv", 2000, 2009),
+    (f"{CENSUS}/2010-2020/counties/totals/co-est2020-alldata.csv", 2010, 2019),
+    (POP_FILES["2020s"], 2020, 2025),
+]
 ZILLOW_URL = (
     "https://files.zillowstatic.com/research/public_csvs/zhvi/"
     "City_zhvi_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv"
@@ -94,6 +101,30 @@ def fetch_population() -> pd.DataFrame:
     return pop.stack().rename("population").rename_axis(["fips", "year"]).to_frame()
 
 
+def parse_components(path, year_lo: int, year_hi: int) -> pd.DataFrame:
+    """California county natural change and net migration (domestic plus international) for year_lo..year_hi."""
+    df = pd.read_csv(path, encoding="latin-1", dtype={"STATE": str, "COUNTY": str})
+    df["STATE"], df["COUNTY"] = df["STATE"].str.zfill(2), df["COUNTY"].str.zfill(3)
+    df = df[(df["STATE"] == "06") & (df["COUNTY"] != "000")]
+    # The 2025 vintage renamed NATURALINC to NATURALCHG.
+    natural = "NATURALCHG" if "NATURALCHG2025" in df.columns or "NATURALCHG2020" in df.columns else "NATURALINC"
+    fips = "06" + df["COUNTY"]
+    rows = [
+        pd.DataFrame({
+            "fips": fips.values, "year": y,
+            "natural_change": df[f"{natural}{y}"].values,
+            "net_migration": (df[f"DOMESTICMIG{y}"] + df[f"INTERNATIONALMIG{y}"]).values,
+        })
+        for y in range(year_lo, year_hi + 1)
+    ]
+    return pd.concat(rows, ignore_index=True).astype({"natural_change": int, "net_migration": int})
+
+
+def fetch_components() -> pd.DataFrame:
+    parts = [parse_components(*args) for args in COMPONENT_FILES]
+    return pd.concat(parts, ignore_index=True).set_index(["fips", "year"]).sort_index()
+
+
 def fetch_county_names() -> pd.Series:
     df = pd.read_csv(POP_FILES["2020s"], encoding="latin-1", dtype={"STATE": str, "COUNTY": str})
     df = df[(df["STATE"] == "06") & (df["COUNTY"] != "000")]
@@ -113,7 +144,7 @@ def fetch_panel() -> pd.DataFrame:
     fips_codes = pop.index.get_level_values("fips").unique()
     with ThreadPoolExecutor(8) as pool:
         fred = pd.concat(pool.map(fetch_county_fred, fips_codes))
-    return fred.set_index(["fips", "year"]).join(pop, how="outer").sort_index()
+    return fred.set_index(["fips", "year"]).join(pop, how="outer").join(fetch_components()).sort_index()
 
 
 def fetch_cities() -> pd.DataFrame:

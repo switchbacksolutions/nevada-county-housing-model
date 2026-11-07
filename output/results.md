@@ -113,8 +113,41 @@ The peer-set same-year elasticity is 1.07.
 | all/drop_2020_2022 | 55 | 1.473 (0.319) | 2.25 | 1.41 to 3.28 | 1,155 |
 | all/three_price_lags | 55 | 1.266 (0.243) | 2.00 | 1.32 to 2.90 | 1,320 |
 | all/sign_split | 55 | 1.588 (0.348) | 2.41 | 1.49 to 3.55 | 1,320 |
+| all/components | 55 | 1.243 (0.268) | 1.91 | 1.17 to 2.88 | 1,320 |
+| peer/components | 27 | 0.714 (0.324) | 0.95 | 0.27 to 1.64 | 648 |
 
 The sign split gives 1.59 for growth and 1.01 for decline, with wide intervals; the data do not reliably separate the two directions (difference p = 0.26).
+
+## Migration and natural change
+
+Population growth is split into net migration (domestic plus international) and natural change (births minus deaths),
+each as a share of last year's population. Both enter one fit. The first table is the peer set, the second is all counties.
+
+Peer counties:
+
+| Term | Coefficient | 90% CI | p-value |
+|---|---:|---|---:|
+| Last year's real price growth | 0.245 | 0.083 to 0.406 | 0.013 |
+| Net migration rate | 0.714 | 0.182 to 1.246 | 0.027 |
+| Real per-capita income growth | -0.103 | -0.202 to -0.004 | 0.087 |
+| Last year's permits per 1,000 residents | -0.001 | -0.002 to 0.001 | 0.382 |
+| Natural change rate (births minus deaths) | -4.456 | -6.986 to -1.925 | 0.004 |
+
+27 counties, years 2001-2024, n = 648. County and year fixed effects. Standard errors clustered by county and year.
+
+All counties:
+
+| Term | Coefficient | 90% CI | p-value |
+|---|---:|---|---:|
+| Last year's real price growth | 0.350 | 0.226 to 0.475 | 0.000 |
+| Net migration rate | 1.243 | 0.803 to 1.684 | 0.000 |
+| Real per-capita income growth | 0.008 | -0.088 to 0.104 | 0.893 |
+| Last year's permits per 1,000 residents | -0.001 | -0.003 to 0.000 | 0.185 |
+| Natural change rate (births minus deaths) | -5.657 | -9.553 to -1.761 | 0.017 |
+
+55 counties, years 2001-2024, n = 1320. County and year fixed effects. Standard errors clustered by county and year.
+
+Natural change (births minus deaths) does not respond to this year's prices. Net migration does. The migration coefficient is the association that matters for Nevada County, where natural change is negative.
 
 ## Placebo check
 
