@@ -10,6 +10,7 @@ import pandas as pd
 import statsmodels.api as sm
 
 SEED = 2026
+PEER_MAX_POP = 200_000
 
 # `counties` is "all", "peer" (mean population under 200,000) or "large" (the rest).
 # `drop_years` removes those years before fitting.
@@ -59,7 +60,7 @@ def long_run(res, pop_col: str, n: int) -> tuple[float, float, float]:
     return point, *np.percentile(b[:, 0] / (1 - b[:, 1]), [5, 95])
 
 
-def peer_counties(p: pd.DataFrame, max_pop: int = 200_000) -> list[str]:
+def peer_counties(p: pd.DataFrame, max_pop: int = PEER_MAX_POP) -> list[str]:
     mean_pop = p.groupby("fips")["population"].mean()
     return sorted(mean_pop[mean_pop < max_pop].index)
 

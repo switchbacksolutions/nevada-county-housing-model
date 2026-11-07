@@ -55,7 +55,7 @@ The peer-set headline is 1.07.
 | all/three_price_lags | 55 | 1.266 (0.243) | 2.00 | 1.32 to 2.90 | 1,320 |
 | all/sign_split | 55 | 1.588 (0.348) | 2.41 | 1.49 to 3.55 | 1,320 |
 
-The sign split gives 1.59 for growth and 1.01 for decline, with wide intervals; the data do not reliably separate the two directions.
+The sign split gives 1.59 for growth and 1.01 for decline, with wide intervals; the data do not reliably separate the two directions (difference p = 0.26).
 
 ## Placebo check
 

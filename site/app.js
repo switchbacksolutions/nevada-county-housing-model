@@ -487,7 +487,7 @@ function rangeChart(container, rows, headline) {
     s("line", { x1: x(r.lr_lo), x2: x(r.lr_hi), y1: cy, y2: cy, stroke: css("--series-1"), "stroke-width": 2, "stroke-linecap": "round" }, g);
     s("circle", { cx: x(r.lr), cy, r: 5, fill: isHead ? css("--series-1") : css("--surface-1"), stroke: css("--series-1"), "stroke-width": 2 }, g);
     s("rect", { x: 0, y: cy - rowH / 2, width, height: rowH, fill: "transparent" }, g);
-    const show = (evt) => showTip(evt, SPEC_LABELS[r.spec] || r.spec, [[css("--series-1"), "90% range", `${r.lr.toFixed(2)}% (${r.lr_lo.toFixed(2)} to ${r.lr_hi.toFixed(2)})`]]);
+    const show = (evt) => showTip(evt, SPEC_LABELS[r.spec] || r.spec, [[css("--series-1"), "Estimate", `${r.lr.toFixed(2)}%`], [css("--series-1"), "90% range", `${r.lr_lo.toFixed(2)} to ${r.lr_hi.toFixed(2)}`]]);
     g.addEventListener("pointermove", show);
     g.addEventListener("pointerleave", hideTip);
     g.addEventListener("focus", () => { const b = g.getBoundingClientRect(); show({ clientX: b.left + x(r.lr), clientY: b.top }); });

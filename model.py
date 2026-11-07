@@ -1,7 +1,8 @@
 """Estimate how Nevada County population growth moves home values in Grass Valley and Nevada City.
 
-Stage 1 fits real price growth on population growth across all California counties, with county
-and year fixed effects. Stage 2 maps Nevada County price growth to each city. Run fetch_data.py first.
+Stage 1 fits real price growth on population growth with county and year fixed effects. The headline
+uses the California counties under 200,000 people, the set that includes Nevada County. The specification
+curve also fits all counties. Stage 2 maps Nevada County price growth to each city. Run fetch_data.py first.
 """
 
 import json
@@ -12,7 +13,7 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 
-from analysis.county_model import SEED, coef_draws, fit_panel, long_run, peer_counties, spec_curve
+from analysis.county_model import PEER_MAX_POP, SEED, coef_draws, fit_panel, long_run, peer_counties, spec_curve
 
 ROOT = Path(__file__).parent
 DATA, OUT, SITE = ROOT / "data", ROOT / "output", ROOT / "site"
@@ -21,7 +22,6 @@ CITIES = ["Grass Valley", "Nevada City"]
 BASE_YEAR = 2025  # last complete year of city prices; projections start the year after
 HORIZON = 10
 DRAWS = 10_000
-PEER_MAX_POP = 200_000
 
 # Slots 1-4 of the dataviz reference palette (light mode), validated for adjacent lines.
 COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]
@@ -112,7 +112,7 @@ def coef_json(res) -> list[dict]:
     ]
 
 
-def export_site(p, z, county, county_lag, all_fits, cities, peers, curve):
+def export_site(p, z, county, county_lag, all_fits, cities, curve):
     """Write site/data.json: history, county comparison, model summary, and a scenario grid for the explorer."""
     names = pd.read_csv(DATA / "ca_county_names.csv", dtype={"fips": str}).set_index("fips")["name"]
     nev = p[p["fips"] == NEVADA].set_index("year")
@@ -157,7 +157,7 @@ def export_site(p, z, county, county_lag, all_fits, cities, peers, curve):
         for set_name, fits in (("peer", (county, county_lag)), ("all", all_fits))
         for key, res, col in zip(("same_year", "lagged"), fits, ("dlpop", "dlpop_lag"))
     }
-    spec_rows = curve.round(3).to_dict("records")
+    spec_rows = curve.round({"lr": 2, "lr_lo": 2, "lr_hi": 2}).round(3).to_dict("records")
 
     data = {
         "base_year": BASE_YEAR,
@@ -283,7 +283,7 @@ def main():
     effects_lag = {name: population_effect(county_lag, cities, g, "dlpop_lag") for name, g in scenarios(p).items()}
     plot_history(p, z)
     plot_scenarios(z, effects)
-    export_site(p, z, county, county_lag, all_fits, cities, peers, curve)
+    export_site(p, z, county, county_lag, all_fits, cities, curve)
 
     rows = [
         f"| Scenario | 10-yr population change | City | {BASE_YEAR + HORIZON} value | Effect vs. flat population | 90% range | Lagged-model effect |",
@@ -311,15 +311,14 @@ def main():
         curve_rows.append(
             f"| {r.spec} | {r.n_counties} | {r.b_pop:.3f} ({r.se:.3f}) | {r.lr:.2f} | {r.lr_lo:.2f} to {r.lr_hi:.2f} | {r.n_obs:,} |"
         )
-    ci_sign = sign.conf_int(0.10)
     b_pos, b_neg = sign.params["dlpop_pos"], sign.params["dlpop_neg"]
-    overlap = max(ci_sign.loc["dlpop_pos", 0], ci_sign.loc["dlpop_neg", 0]) <= min(ci_sign.loc["dlpop_pos", 1], ci_sign.loc["dlpop_neg", 1])
-    sign_sentence = (
-        f"The sign split gives {b_pos:.2f} for growth and {b_neg:.2f} for decline, with wide intervals; "
-        "the data do not reliably separate the two directions."
-        if overlap else
-        f"The sign split gives {b_pos:.2f} for growth and {b_neg:.2f} for decline; declines go with larger price moves."
-    )
+    diff_p = float(sign.t_test("dlpop_pos = dlpop_neg").pvalue)
+    sign_head = f"The sign split gives {b_pos:.2f} for growth and {b_neg:.2f} for decline"
+    if diff_p >= 0.10:
+        sign_sentence = f"{sign_head}, with wide intervals; the data do not reliably separate the two directions (difference p = {diff_p:.2f})."
+    else:
+        bigger = "declines" if b_neg > b_pos else "growth"
+        sign_sentence = f"{sign_head}; {bigger} go{'' if bigger == 'declines' else 'es'} with larger price moves (difference p = {diff_p:.2f})."
     nev_pop = round(p[(p["fips"] == NEVADA) & (p["year"] == BASE_YEAR)]["population"].iloc[0], -3)
 
     city_table, scenario_table, curve_table = "\n".join(city_rows), "\n".join(rows), "\n".join(curve_rows)

@@ -9,11 +9,13 @@ explorer, history, county comparison, and method).
 ## Method
 
 1. **County panel (stage 1).** Annual real home-price growth (FHFA county house price index,
-   CPI-deflated) for 55 California counties, 2001-2024, regressed on population growth, last
+   CPI-deflated) for California counties, 2001-2024, regressed on population growth, last
    year's price growth, real per-capita income growth, and last year's permits per 1,000
    residents. County fixed effects remove fixed local differences. Year fixed effects remove
    statewide and national drivers such as mortgage rates. A single county has too few years to
-   measure the population effect, so the panel supplies the elasticity.
+   measure the population effect, so the panel supplies the elasticity. The headline uses the
+   counties under 200,000 people, the set that includes Nevada County. The full 55-county panel
+   appears in the specification curve.
 2. **City pass-through (stage 2).** Each city's real Zillow Home Value Index growth is regressed
    on Nevada County real price growth, 2002-2025.
 3. **Scenarios.** Constant population growth paths for 2026-2035. Results show the value change
