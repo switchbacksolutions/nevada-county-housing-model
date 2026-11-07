@@ -542,6 +542,8 @@ All counties:
 
 Natural change (births minus deaths) does not respond to this year's prices. Net migration does. The migration coefficient is the association that matters for Nevada County, where natural change is negative.
 
+The natural-change coefficient is large and negative. Counties with more births than deaths are younger, mostly inland counties whose prices grew more slowly over this period, so the coefficient reflects county age structure, not a price response. Do not read it as a lever.
+
 ## Placebo check
 
 These fits use all counties.

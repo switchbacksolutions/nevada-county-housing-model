@@ -30,3 +30,5 @@ def test_components_older_vintages_use_naturalinc():
     mid = fetch_data.parse_components(CENSUS_FIX / "co-est2020-alldata-excerpt.csv", 2010, 2020)
     assert set(old.year) == set(range(2000, 2010)) and set(mid.year) == set(range(2010, 2021))
     assert set(old.fips) == {"06057", "06061"}
+    nev = old[(old.fips == "06057") & (old.year == 2009)].iloc[0]
+    assert (nev.natural_change, nev.net_migration) == (-58, 496)
