@@ -17,7 +17,7 @@ explorer, history, county comparison, and method).
 2. **City pass-through (stage 2).** Each city's real Zillow Home Value Index growth is regressed
    on Nevada County real price growth, 2002-2025.
 3. **Scenarios.** Constant population growth paths for 2026-2035. Results show the value change
-   caused by population alone, against a flat-population path. They are not market forecasts.
+   that goes with population alone, against a flat-population path. They are not market forecasts.
 
 ## Limits
 

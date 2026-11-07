@@ -39,6 +39,8 @@ Next year's population growth, which this year's prices cannot respond to, is in
 regressor. If it predicts this year's price growth, the population coefficient reflects shared
 local shocks (jobs, amenities, remote work) rather than a timing story.
 
+Next year's population growth on its own:
+
 | Term | Coefficient | 90% CI | p-value |
 |---|---:|---|---:|
 | Last year's real price growth | 0.376 | 0.229 to 0.522 | 0.000 |
@@ -47,6 +49,8 @@ local shocks (jobs, amenities, remote work) rather than a timing story.
 | Last year's permits per 1,000 residents | -0.001 | -0.002 to 0.001 | 0.437 |
 
 55 counties, years 2001-2024, n = 1320. County and year fixed effects. Standard errors clustered by county and year.
+
+Lagged, same-year and next-year growth together:
 
 | Term | Coefficient | 90% CI | p-value |
 |---|---:|---|---:|

@@ -345,7 +345,11 @@ Next year's population growth, which this year's prices cannot respond to, is in
 regressor. If it predicts this year's price growth, the population coefficient reflects shared
 local shocks (jobs, amenities, remote work) rather than a timing story.
 
+Next year's population growth on its own:
+
 {coef_table(placebo)}
+
+Lagged, same-year and next-year growth together:
 
 {coef_table(joint)}
 

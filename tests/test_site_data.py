@@ -2,7 +2,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-BANNED = re.compile(r"cannot have caused|lower bound|conservative|cautious|between the two", re.I)
+BANNED = re.compile(r"cannot have caused|caused|effect of|lower bound|conservative|cautious|between the two", re.I)
 
 
 def test_no_bound_language():
