@@ -3,7 +3,11 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-BANNED = re.compile(r"cannot have caused|caused|effect of|lower bound|conservative|cautious|between the two", re.I)
+BANNED = re.compile(
+    r"cannot have caused|caused|effect of|lower bound|conservative|cautious|between the two"
+    r"|changes? (typical )?home values|\bcause\b|population effect|after people arrive",
+    re.I,
+)
 
 
 def test_no_bound_language():
@@ -81,7 +85,10 @@ def test_explained_population_part_within_actual():
         e = data["explained"][city]
         assert abs(e["population_pct"]) < abs(e["actual_pct"])
         assert e["population_lo"] <= e["population_pct"] <= e["population_hi"]
-        assert abs(e["other_pct"] - (e["actual_pct"] - e["population_pct"])) < 0.01
+        import math
+
+        rest = 100 * math.expm1(math.log1p(e["actual_pct"] / 100) - math.log1p(e["population_pct"] / 100))
+        assert abs(e["other_pct"] - rest) < 0.01
 
 
 def test_grid_equals_scaled_unit_paths():

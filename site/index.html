@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Population and home prices in Grass Valley and Nevada City</title>
-  <meta name="description" content="A statistical model of how Nevada County, California population growth changes home values in Grass Valley and Nevada City.">
+  <meta name="description" content="A statistical model of how home values in Grass Valley and Nevada City move with Nevada County, California population growth.">
   <link rel="stylesheet" href="style.css">
   <script>
     // Apply a saved theme before first paint so the page does not flash.
@@ -23,7 +23,7 @@
       </div>
       <h1>When more people move to Nevada County, what happens to home prices in Grass Valley and Nevada City?</h1>
       <p class="lede">
-        This model uses 24 years of data from California counties to measure how population growth changes home values.
+        This model uses 24 years of data from California counties to measure how home values move with population growth.
         It then applies that result to the two cities. All dollar values are in <span data-bind="base_year"></span> dollars, adjusted for inflation.
       </p>
       <div class="tiles" id="tiles"></div>
@@ -78,7 +78,7 @@
       <h2 id="history-title">25 years of population and prices</h2>
       <p class="section-lede">
         Population grew slowly and steadily. Home values swung much more, with the 2000s housing bubble, the 2008 crash and the pandemic jump in 2020-2021.
-        Population growth is one cause among several, which is why the model needs data from many counties to measure it.
+        Population growth is one of several forces, which is why the model needs data from many counties to measure it.
         Markers show events that coincided with turns in the market. They are dates, not causes.
       </p>
       <div class="control history-control">
@@ -104,10 +104,10 @@
     </section>
 
     <section aria-labelledby="impulse-title">
-      <h2 id="impulse-title">Prices keep rising for a few years after people arrive</h2>
+      <h2 id="impulse-title">Prices keep moving for a few years after a population change</h2>
       <p class="section-lede">
-        Prices keep moving for a few years after people arrive. The direct estimate measures the price change one, two, up to ten years after a one-year population change, horizon by horizon.
-        The momentum model extends a one-year relation. They agree at short horizons; where they part, trust the direct estimate.
+        Prices keep moving for a few years after a population change. The direct estimate measures the price change one, two, up to ten years after a one-year population change, horizon by horizon.
+        The momentum model extends a one-year relation. They agree at short horizons. Where they part, the ten-year values are uncertain: a check that regresses ten-year price changes on ten-year population changes gives a much smaller number (see the long-difference check in the full results).
       </p>
       <div class="card"><div id="impulse-chart" class="chart"></div></div>
       <details class="table-view"><summary>Show response table</summary><div id="impulse-table"></div></details>
@@ -117,7 +117,7 @@
       <h2 id="method-title">How the model works</h2>
       <ol>
         <li>
-          <strong>Population effect across California.</strong>
+          <strong>Population and prices across California.</strong>
           <span id="method-panel"></span>
           County effects remove fixed local differences. Year effects remove things that hit every county at once, such as mortgage rates and recessions.
         </li>
@@ -135,7 +135,7 @@
 
       <h3>Two estimates, and why they differ</h3>
       <p>
-        Population and prices move together, and the data cannot say which moves first. The <em>same-year</em> estimate pairs this year's population change with this year's price change. The <em>lagged</em> estimate pairs last year's population change with this year's price change. A placebo check shows that next year's population change predicts this year's prices nearly as well, so neither number is a causal effect or a bound on one. Both are associations under a timing choice.
+        Population and prices move together, and the data cannot say which moves first. The <em>same-year</em> estimate pairs this year's population change with this year's price change. The <em>lagged</em> estimate pairs last year's population change with this year's price change. A placebo check shows that next year's population change predicts this year's prices better than last year's change does, so neither number is a causal effect or a bound on one. Both are associations under a timing choice.
       </p>
       <h3>Peer counties, under 200,000 people</h3>
       <div class="coef-tables" id="coef-tables"></div>

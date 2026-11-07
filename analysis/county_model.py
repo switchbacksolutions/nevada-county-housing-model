@@ -90,10 +90,12 @@ def spec_curve(p: pd.DataFrame, n: int) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _lp_frame(p: pd.DataFrame, pop_col: str, h: int, counties: list[str] | None = None) -> tuple[pd.DataFrame, list[str]]:
+def _lp_frame(p: pd.DataFrame, pop_col: str, h: int, counties: list[str] | None = None,
+              origin_years: tuple[int, int] | None = None) -> tuple[pd.DataFrame, list[str]]:
     """Rows with the cumulative log real price change from t-1 to t+h. Assumes one row per county-year.
 
     Growth in the next h years enters as controls, so the pop_col slope is exact for convolving a specified path.
+    `origin_years` keeps only origins t in that inclusive range, so every horizon can share one sample of origins.
     """
     if counties is not None:
         p = p[p["fips"].isin(counties)]
@@ -101,13 +103,16 @@ def _lp_frame(p: pd.DataFrame, pop_col: str, h: int, counties: list[str] | None 
     g = p.groupby("fips")
     leads = {f"lead_{k}": g[pop_col].shift(-k) for k in range(1, h + 1)}
     x_cols = [pop_col, *leads, *LP_CONTROLS]
-    d = p.assign(y=g["lrp"].shift(-h) - g["lrp"].shift(1), **leads)
-    return d.dropna(subset=["y", *x_cols]), x_cols
+    d = p.assign(y=g["lrp"].shift(-h) - g["lrp"].shift(1), **leads).dropna(subset=["y", *x_cols])
+    if origin_years is not None:
+        d = d[d["year"].between(*origin_years)]
+    return d, x_cols
 
 
-def fit_local_projection(p: pd.DataFrame, pop_col: str, h: int, counties: list[str] | None = None):
+def fit_local_projection(p: pd.DataFrame, pop_col: str, h: int, counties: list[str] | None = None,
+                         origin_years: tuple[int, int] | None = None):
     """Price change h years after a one-year population change, later growth held fixed, county and year effects, clustered by county."""
-    d, x_cols = _lp_frame(p, pop_col, h, counties)
+    d, x_cols = _lp_frame(p, pop_col, h, counties, origin_years)
     fe = pd.get_dummies(d[["fips", "year"]].astype(str), drop_first=True, dtype=float)
     X = sm.add_constant(pd.concat([d[x_cols], fe], axis=1))
     groups = d["fips"].astype("category").cat.codes.to_numpy()
@@ -128,12 +133,12 @@ def _fe_slopes(y: np.ndarray, X: np.ndarray, sizes: np.ndarray) -> np.ndarray:
 
 
 def lp_draws(p: pd.DataFrame, pop_col: str, counties: list[str] | None = None, horizons=HORIZONS,
-             n_boot: int = 1000, seed: int = SEED) -> np.ndarray:
+             n_boot: int = 1000, seed: int = SEED, origin_years: tuple[int, int] | None = None) -> np.ndarray:
     """County block bootstrap of the local-projection slopes, shape (n_boot, len(horizons)).
 
     Every horizon is refit on the same resample, so each row is one jointly consistent impulse response.
     """
-    frames = [_lp_frame(p, pop_col, h, counties) for h in horizons]
+    frames = [_lp_frame(p, pop_col, h, counties, origin_years) for h in horizons]
     fips = sorted(set().union(*(d["fips"] for d, _ in frames)))
     years = sorted(set().union(*(d["year"] for d, _ in frames)))
     blocks = []

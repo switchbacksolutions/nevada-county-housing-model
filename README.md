@@ -1,7 +1,7 @@
 # Nevada County housing model
 
-Estimates how Nevada County, California, population growth changes typical home values in
-Grass Valley and Nevada City, and projects 10-year population scenarios.
+Estimates how typical home values in Grass Valley and Nevada City move with Nevada County,
+California, population growth, and projects 10-year population scenarios.
 
 **Website:** https://basho-walks.github.io/nevada-county-housing-model/ (interactive scenario
 explorer, history, county comparison, and method).
@@ -13,7 +13,7 @@ explorer, history, county comparison, and method).
    year's price growth, real per-capita income growth, and last year's permits per 1,000
    residents. County fixed effects remove fixed local differences. Year fixed effects remove
    statewide and national drivers such as mortgage rates. A single county has too few years to
-   measure the population effect, so the panel supplies the elasticity. The headline uses the
+   measure the population association, so the panel supplies the elasticity. The headline uses the
    counties under 200,000 people, the set that includes Nevada County. The full 55-county panel
    appears in the specification curve.
 2. **City pass-through (stage 2).** Each city's real Zillow Home Value Index growth is regressed
@@ -24,8 +24,8 @@ explorer, history, county comparison, and method).
 ## Limits
 
 - Population and prices affect each other. Both timing versions of the model are associations,
-  not causal effects. A placebo with next year's population growth predicts prices nearly as
-  well as last year's.
+  not causal effects. A placebo with next year's population growth predicts prices better
+  than last year's does.
 - The effect is assumed symmetric. A split by sign finds no reliable difference.
 - Census has no 2010-2020 intercensal county file. `fetch_data.py` spreads the 2020 estimate
   gap linearly over 2011-2019.

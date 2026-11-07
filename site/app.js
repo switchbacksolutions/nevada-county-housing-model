@@ -609,7 +609,7 @@ function renderHistory() {
 const EXPLAINED_BARS = [
   { key: "actual_pct", name: "Actual change since 2001", color: "--text-secondary", opacity: 1 },
   { key: "population_pct", name: "Part that goes with population growth", color: "--series-1", opacity: 1 },
-  { key: "other_pct", name: "Everything else", color: "--series-3", opacity: 0.5 },
+  { key: "other_pct", name: "Remainder (other forces)", color: "--series-3", opacity: 0.5 },
 ];
 
 /** Three bars per city on one shared percent axis, drawn as small multiples. rows: {city: explained entry}. */
@@ -633,7 +633,7 @@ function waterfallChart(container, rows) {
     const m = { top: 16, right: 8, bottom: 20, left: 48 };
     const height = 300;
     const y = linear([yt.lo, yt.hi], [height - m.bottom, m.top]);
-    const svg = s("svg", { viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": `${city}: actual change since ${e.start_year} ${pct(e.actual_pct, 0)}, part that goes with population growth ${pct(e.population_pct, 0)}, everything else ${pct(e.other_pct, 0)}` }, box);
+    const svg = s("svg", { viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": `${city}: actual change since ${e.start_year} ${pct(e.actual_pct, 0)}, part that goes with population growth ${pct(e.population_pct, 0)}, remainder from other forces ${pct(e.other_pct, 0)}` }, box);
     const ax = s("g", { class: "axis" }, svg);
     for (const v of yt.ticks) {
       s("line", { class: "gridline", x1: m.left, x2: width - m.right, y1: y(v), y2: y(v) }, ax);
@@ -677,7 +677,7 @@ function renderExplained() {
   document.getElementById("explained-lede").textContent =
     `The county grew about ${grew.toFixed(0)}% since ${first.start_year}. Run through the model's own arithmetic, that growth goes with roughly ${share(c1)}% of ${c1}'s ${ex[c1].actual_pct.toFixed(0)}% real price change and ${share(c2)}% of ${c2}'s ${ex[c2].actual_pct.toFixed(0)}%. ` +
     `The 90% range on the population part runs from ${lo.toFixed(0)}% to ${hi.toFixed(0)}%, ${lo < 0 && hi > 0 ? "so it crosses zero" : "so it stays on one side of zero"}. ` +
-    "The rest is other forces the model holds fixed: mortgage rates, incomes, the pandemic, insurance. Responses beyond ten years after a change hold the ten-year value.";
+    "The rest is other forces the model holds fixed: mortgage rates, incomes, the pandemic, insurance. The two parts compound, so they do not add up to the actual change. Responses beyond ten years after a change hold the ten-year value.";
   waterfallChart(document.getElementById("explained-chart"), ex);
   table(
     document.getElementById("explained-table"),

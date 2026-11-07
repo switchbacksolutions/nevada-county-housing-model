@@ -44,7 +44,9 @@ the end of year n, where year 1 is the year of the change itself, on that year's
 the same controls and county and year fixed effects. Each fit also holds population growth in the later
 years of the window fixed, so the value is the cumulative price change in percent for a one-year 1%
 population change with later growth unchanged. Intervals come from 1,000 county block bootstrap
-resamples; every horizon is refit on the same resample.
+resamples; every horizon is refit on the same resample. The table shows bootstrap medians.
+Each horizon uses every origin year with data through the end of year n, so year 1 uses 2001-2024 and year 10 uses 2001-2016.
+The peer bootstrap resamples 27 counties, so its intervals may be too narrow.
 
 | Years after the change | Peer counties | 90% interval | All counties | 90% interval |
 |---:|---:|---|---:|---|
@@ -59,7 +61,10 @@ resamples; every horizon is refit on the same resample.
 | 9 | 1.16 | -0.72 to 3.20 | 1.62 | 0.37 to 3.01 |
 | 10 | 1.15 | -0.60 to 3.13 | 1.59 | 0.45 to 3.01 |
 
-**Price change after 10 years for 1% more people, peer counties: 1.15** (90% interval -0.60 to 3.13).
+With origins fixed to 2001-2015 for every horizon, the peer responses are 1.07, 2.33, 1.31 at years 1, 5 and 10.
+These are point estimates; with every origin year the point estimates are 0.82, 1.54, 1.21.
+
+**Price change after 10 years for 1% more people, peer counties, bootstrap median: 1.15** (90% interval -0.60 to 3.13).
 
 ## Long-difference check
 
@@ -77,6 +82,8 @@ Applied to a sustained 10-year path, the sum of the year 1 to 10 responses impli
 for peer counties and 2.25 for all counties, against 10-year long-difference coefficients of
 0.15 and 0.59.
 
+The ten-year long difference (0.15) is far below the ten-year path response (1.18); the two checks disagree, and the ten-year scenario values should be read with that in mind.
+
 ## Out-of-sample check
 
 For each origin year from 2014 on, the model is fit on earlier years only. It then predicts each county's
@@ -93,6 +100,8 @@ Pairs are the pooled county-origin pairs.
 | 5 | full | 0.063 | 0.31 | 162 | 0.085 | 0.38 | 330 |
 | 5 | no_population | 0.063 | 0.20 | 162 | 0.086 | -0.05 | 330 |
 | 5 | zero | 0.060 | n/a | 162 | 0.074 | n/a | 330 |
+
+Predicting no deviation beats every model on RMSE at both horizons; population growth helps rank counties (peer correlation 0.31 vs 0.20 at five years) but not predict the size of their price changes.
 
 This tests whether population growth helps rank counties' price growth ahead of time. It is not evidence of causation.
 
@@ -147,7 +156,7 @@ All counties:
 
 55 counties, years 2001-2024, n = 1320. County and year fixed effects. Standard errors clustered by county and year.
 
-Natural change (births minus deaths) does not respond to this year's prices. Net migration does. The migration coefficient is the association that matters for Nevada County, where natural change is negative.
+Natural change (births minus deaths) does not respond to this year's prices. The migration coefficient is the association that matters for Nevada County, where natural change is negative.
 
 The natural-change coefficient is large and negative. With county fixed effects it comes from years when a county's births minus deaths moved relative to that county's own average. The largest such moves are the 2020-2021 death surge, which was deepest in older counties while their prices rose. The coefficient reflects age structure and timing, not a price response. Do not read it as a lever.
 
@@ -156,8 +165,9 @@ The natural-change coefficient is large and negative. With county fixed effects 
 These fits use all counties.
 
 Next year's population growth, which this year's prices cannot respond to, is included as a
-regressor. If it predicts this year's price growth, the population coefficient reflects shared
-local shocks (jobs, amenities, remote work) rather than a timing story.
+regressor. If it predicts this year's price growth, the population coefficient may reflect shared
+local shocks (jobs, amenities, remote work), anticipated arrivals, or migration that follows prices;
+the data cannot tell these apart.
 
 Next year's population growth on its own:
 
@@ -198,11 +208,11 @@ Annual log change in each city's real Zillow Home Value Index on the Nevada Coun
 
 Each scenario holds Nevada County population growth at a constant rate. Each year's growth is
 combined with the local-projection response at every later horizon. Every other driver stays
-where it was in 2025, so the 2035 value is the 2025 value plus the population effect only.
+where it was in 2025, so the 2035 value is the 2025 value plus the population association only.
 It is not a forecast of the market. Ranges combine 1,000 county bootstrap resamples of the peer-county local projections with draws of the city pass-through coefficient.
 The last column uses the local projections fit on all counties.
 
-| Scenario | 10-yr population change | City | 2035 value | Effect vs. flat population | 90% range | All-counties effect |
+| Scenario | 10-yr population change | City | 2035 value | Change vs. flat population | 90% range | All-counties change |
 |---|---:|---|---:|---:|---|---:|
 | Decline (-0.50%/yr) | -4.9% | Grass Valley | $480,429 | -5.6% ($-28,569) | $-62,902 to $+2,320 | -10.6% ($-53,871) |
 | Decline (-0.50%/yr) | -4.9% | Nevada City | $526,423 | -5.6% ($-31,423) | $-68,347 to $+2,538 | -10.5% ($-58,845) |

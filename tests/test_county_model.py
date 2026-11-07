@@ -85,6 +85,16 @@ def test_bootstrap_slopes_match_dummy_fit():
     slopes = cm._fe_slopes(d["y"].to_numpy(), np.column_stack([d[cols].to_numpy(), years]), sizes)
     np.testing.assert_allclose(slopes[:len(cols)], res.params[cols], rtol=1e-8)
 
+def test_origin_years_fix_the_sample_across_horizons():
+    p = make_panel()
+    p["lrp"] = p.groupby("fips")["dlp"].cumsum()
+    for h in (0, 5):
+        d, _ = cm._lp_frame(p, "dlpop", h, origin_years=(2005, 2012))
+        assert set(d["year"]) == set(range(2005, 2013))
+    res = cm.fit_local_projection(p, "dlpop", 5, origin_years=(2005, 2012))
+    assert res.sample["year"].between(2005, 2012).all()
+    assert cm.lp_draws(p, "dlpop", horizons=[0, 5], n_boot=5, origin_years=(2005, 2012)).shape == (5, 2)
+
 def test_lp_conditions_on_later_growth():
     # Persistent population growth, no price momentum: the conditional response is b at every horizon.
     rng, b, phi, rows = np.random.default_rng(3), 1.5, 0.7, []

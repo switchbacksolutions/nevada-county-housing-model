@@ -15,7 +15,7 @@ import pandas as pd
 import statsmodels.api as sm
 
 from analysis.county_model import (
-    PEER_MAX_POP, SEED, coef_draws, fit_panel, long_difference, long_run, lp_draws, path_effect, peer_counties, rolling_validation, spec_curve,
+    PEER_MAX_POP, SEED, coef_draws, fit_local_projection, fit_panel, long_difference, long_run, lp_draws, path_effect, peer_counties, rolling_validation, spec_curve,
 )
 
 ROOT = Path(__file__).parent
@@ -204,9 +204,11 @@ def explained_export(p, z, imp, cd) -> dict[str, dict[str, float]]:
     out = {}
     for city, draws in final.items():
         pop_lo, pop, pop_hi = (100 * np.expm1(np.percentile(draws, q)) for q in (5, 50, 95))
-        actual = 100 * (z.loc[BASE_YEAR, city] / z.loc[2001, city] - 1)
-        out[city] = {"start_year": 2001, "end_year": BASE_YEAR, "actual_pct": round(actual, 2), "population_pct": round(pop, 2),
-                     "population_lo": round(pop_lo, 2), "population_hi": round(pop_hi, 2), "other_pct": round(round(actual, 2) - round(pop, 2), 2)}
+        actual, pop = round(100 * (z.loc[BASE_YEAR, city] / z.loc[2001, city] - 1), 2), round(pop, 2)
+        # The parts compound, so the remainder is a log-point difference; built from the rounded values the site shows.
+        other = 100 * np.expm1(np.log1p(actual / 100) - np.log1p(pop / 100))
+        out[city] = {"start_year": 2001, "end_year": BASE_YEAR, "actual_pct": actual, "population_pct": pop,
+                     "population_lo": round(pop_lo, 2), "population_hi": round(pop_hi, 2), "other_pct": round(other, 2)}
     return out
 
 
@@ -271,7 +273,8 @@ def export_site(p, z, z_nominal, county, county_lag, all_fits, cities, curve, co
         for set_name, fits in (("peer", (county, county_lag)), ("all", all_fits))
         for key, res, col in zip(("same_year", "lagged"), fits, ("dlpop", "dlpop_lag"))
     }
-    lp10 = dict(zip(("point", "lo", "hi"), np.round(np.percentile(imps["peer"][:, HORIZON - 1], [50, 5, 95]), 2).tolist()))
+    lp10 = {**dict(zip(("point", "lo", "hi"), np.round(np.percentile(imps["peer"][:, HORIZON - 1], [50, 5, 95]), 2).tolist())),
+            "estimate": "bootstrap median"}
     spec_rows = curve.round({"lr": 2, "lr_lo": 2, "lr_hi": 2}).round(3).to_dict("records")
 
     zips = pd.read_csv(DATA / "panel_zip_year.csv")
@@ -433,7 +436,7 @@ def main():
     export_site(p, z, z_nominal, county, county_lag, all_fits, cities, curve, {"peer": comp_peer, "all": comp_all}, imps, cd, dof, validation)
 
     rows = [
-        f"| Scenario | 10-yr population change | City | {BASE_YEAR + HORIZON} value | Effect vs. flat population | 90% range | All-counties effect |",
+        f"| Scenario | 10-yr population change | City | {BASE_YEAR + HORIZON} value | Change vs. flat population | 90% range | All-counties change |",
         "|---|---:|---|---:|---:|---|---:|",
     ]
     for (name, eff), eff_all, g in zip(effects.items(), effects_all.values(), paths.values()):
@@ -456,12 +459,32 @@ def main():
             cells.append(f"{med:.2f} | {lo:.2f} to {hi:.2f}")
         lp_rows.append(f"| {j + 1} | {' | '.join(cells)} |")
     lp10_med, lp10_lo, lp10_hi = np.percentile(imps["peer"][:, HORIZON - 1], [50, 5, 95])
+    lp_first, lp_last = (fit_local_projection(p, "dlpop", h, peers).sample for h in (0, HORIZON - 1))
+    lp_window = {k: f"{d['year'].min()}-{d['year'].max()}" for k, d in (("first", lp_first), ("last", lp_last))}
+    lp_counties = lp_first["fips"].nunique()
+    # 2001-2015 lies inside every horizon's window, so all horizons share one set of origins.
+    fixed, unfixed = ([fit_local_projection(p, "dlpop", h - 1, peers, o).params["dlpop"] for h in (1, 5, HORIZON)] for o in ((2001, 2015), None))
     # A sustained path raises log population by HORIZON * g and log price by g * sum(impulse), so this is its implied elasticity.
     sustained = {k: np.median(imp.sum(axis=1)) / HORIZON for k, imp in imps.items()}
     ld = {h: {k: long_difference(p, "dlpop", h, sel) for k, sel in (("peer", peers), ("all", None))} for h in (1, 5, HORIZON)}
     ld_rows = ["| Window (years) | Peer counties (s.e.) | Windows | All counties (s.e.) | Windows |", "|---:|---:|---:|---:|---:|"]
     for h, rs in ld.items():
         ld_rows.append(f"| {h} | " + " | ".join(f"{r['b']:.2f} ({r['se']:.2f}) | {r['n']:,}" for r in rs.values()) + " |")
+    ld10_peer, lp_sum_peer = ld[HORIZON]["peer"]["b"], sustained["peer"]
+    if ld10_peer < 0.5 * lp_sum_peer:
+        ld_sentence = (f"The ten-year long difference ({ld10_peer:.2f}) is far below the ten-year path response ({lp_sum_peer:.2f}); "
+                       "the two checks disagree, and the ten-year scenario values should be read with that in mind.")
+    else:
+        ld_sentence = f"The ten-year long difference ({ld10_peer:.2f}) is within a factor of two of the ten-year path response ({lp_sum_peer:.2f})."
+
+    def val(k, h, m, col):
+        return validation[k].set_index(["horizon", "model"]).loc[(h, m), col]
+
+    zero_best = all(val(k, h, "zero", "rmse") < min(val(k, h, m, "rmse") for m in ("full", "no_population")) for k in validation for h in (1, 5))
+    corr_full_5, corr_nopop_5 = val("peer", 5, "full", "corr"), val("peer", 5, "no_population", "corr")
+    rank = f"population growth helps rank counties (peer correlation {corr_full_5:.2f} vs {corr_nopop_5:.2f} at five years)"
+    val_sentence = (f"Predicting no deviation beats every model on RMSE at both horizons; {rank} but not predict the size of their price changes."
+                    if zero_best else f"Some model beats predicting no deviation on RMSE; {rank}.")
 
     val_rows = ["| Years ahead | Model | Peer RMSE | Peer correlation | Peer pairs | All-county RMSE | All-county correlation | All-county pairs |", "|---:|---|---:|---:|---:|---:|---:|---:|"]
     for rp, ra in zip(validation["peer"].itertuples(), validation["all"].itertuples()):
@@ -523,11 +546,16 @@ the end of year n, where year 1 is the year of the change itself, on that year's
 the same controls and county and year fixed effects. Each fit also holds population growth in the later
 years of the window fixed, so the value is the cumulative price change in percent for a one-year 1%
 population change with later growth unchanged. Intervals come from {N_BOOT:,} county block bootstrap
-resamples; every horizon is refit on the same resample.
+resamples; every horizon is refit on the same resample. The table shows bootstrap medians.
+Each horizon uses every origin year with data through the end of year n, so year 1 uses {lp_window["first"]} and year {HORIZON} uses {lp_window["last"]}.
+The peer bootstrap resamples {lp_counties} counties, so its intervals may be too narrow.
 
 {lp_table}
 
-**Price change after {HORIZON} years for 1% more people, peer counties: {lp10_med:.2f}** (90% interval {lp10_lo:.2f} to {lp10_hi:.2f}).
+With origins fixed to 2001-2015 for every horizon, the peer responses are {fixed[0]:.2f}, {fixed[1]:.2f}, {fixed[2]:.2f} at years 1, 5 and {HORIZON}.
+These are point estimates; with every origin year the point estimates are {unfixed[0]:.2f}, {unfixed[1]:.2f}, {unfixed[2]:.2f}.
+
+**Price change after {HORIZON} years for 1% more people, peer counties, bootstrap median: {lp10_med:.2f}** (90% interval {lp10_lo:.2f} to {lp10_hi:.2f}).
 
 ## Long-difference check
 
@@ -541,6 +569,8 @@ Applied to a sustained {HORIZON}-year path, the sum of the year 1 to {HORIZON} r
 for peer counties and {sustained["all"]:.2f} for all counties, against {HORIZON}-year long-difference coefficients of
 {ld[HORIZON]["peer"]["b"]:.2f} and {ld[HORIZON]["all"]["b"]:.2f}.
 
+{ld_sentence}
+
 ## Out-of-sample check
 
 For each origin year from {FIRST_TEST_YEAR - 1} on, the model is fit on earlier years only. It then predicts each county's
@@ -550,6 +580,8 @@ year effects are unknown ahead of time. RMSE is in log points. The `zero` model 
 Pairs are the pooled county-origin pairs.
 
 {val_table}
+
+{val_sentence}
 
 This tests whether population growth helps rank counties' price growth ahead of time. It is not evidence of causation.
 
@@ -575,7 +607,7 @@ All counties:
 
 {coef_table(comp_all)}
 
-Natural change (births minus deaths) does not respond to this year's prices. Net migration does. The migration coefficient is the association that matters for Nevada County, where natural change is negative.
+Natural change (births minus deaths) does not respond to this year's prices. The migration coefficient is the association that matters for Nevada County, where natural change is negative.
 
 The natural-change coefficient is large and negative. With county fixed effects it comes from years when a county's births minus deaths moved relative to that county's own average. The largest such moves are the 2020-2021 death surge, which was deepest in older counties while their prices rose. The coefficient reflects age structure and timing, not a price response. Do not read it as a lever.
 
@@ -584,8 +616,9 @@ The natural-change coefficient is large and negative. With county fixed effects 
 These fits use all counties.
 
 Next year's population growth, which this year's prices cannot respond to, is included as a
-regressor. If it predicts this year's price growth, the population coefficient reflects shared
-local shocks (jobs, amenities, remote work) rather than a timing story.
+regressor. If it predicts this year's price growth, the population coefficient may reflect shared
+local shocks (jobs, amenities, remote work), anticipated arrivals, or migration that follows prices;
+the data cannot tell these apart.
 
 Next year's population growth on its own:
 
@@ -607,7 +640,7 @@ Annual log change in each city's real Zillow Home Value Index on the Nevada Coun
 
 Each scenario holds Nevada County population growth at a constant rate. Each year's growth is
 combined with the local-projection response at every later horizon. Every other driver stays
-where it was in {BASE_YEAR}, so the {BASE_YEAR + HORIZON} value is the {BASE_YEAR} value plus the population effect only.
+where it was in {BASE_YEAR}, so the {BASE_YEAR + HORIZON} value is the {BASE_YEAR} value plus the population association only.
 It is not a forecast of the market. Ranges combine {N_BOOT:,} county bootstrap resamples of the peer-county local projections with draws of the city pass-through coefficient.
 The last column uses the local projections fit on all counties.
 
