@@ -231,6 +231,8 @@ def rolling_validation(p: pd.DataFrame, pop_col: str, counties: list[str] | None
                 s = s[ok]
                 pooled[m].append(((s - s.mean()).to_numpy(), a))
             pooled["zero"].append((np.zeros(len(a)), a))
+        if not pooled["zero"]:
+            raise ValueError("no origin has 3 or more counties with complete horizons")
         for m, pairs in pooled.items():
             pred = np.concatenate([x for x, _ in pairs])
             act = np.concatenate([y for _, y in pairs])

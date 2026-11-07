@@ -81,7 +81,7 @@ for peer counties and 2.25 for all counties, against 10-year long-difference coe
 
 For each origin year from 2014 on, the model is fit on earlier years only. It then predicts each county's
 cumulative real price change over the next 1 and 5 years, using the county's actual later population, income and permit
-data. Predictions and actual changes are both measured as deviations from the all-county mean for that origin, because
+data. Predictions and actual changes are both measured as deviations from the mean of the counties in that sample for that origin, because
 year effects are unknown ahead of time. RMSE is in log points. The `zero` model predicts no deviation for every county.
 Pairs are the pooled county-origin pairs.
 

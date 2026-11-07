@@ -137,7 +137,7 @@
 
       <h3>Out-of-sample check</h3>
       <p>
-        For each origin year from <span id="val-start"></span> on, the model is fit on earlier years only and predicts each county's price change over the next 1 and 5 years, as a deviation from the all-county mean. The <em>zero</em> row predicts no deviation for every county. RMSE is in log points. Pairs are the pooled county-origin pairs. This tests whether population growth helps rank counties' price growth ahead of time. It is not evidence of causation.
+        For each origin year from <span id="val-start"></span> on, the model is fit on earlier years only and predicts each county's price change over the next 1 and 5 years, as a deviation from the mean of the counties in that sample. The <em>zero</em> row predicts no deviation for every county. RMSE is in log points. Pairs are the pooled county-origin pairs. This tests whether population growth helps rank counties' price growth ahead of time. It is not evidence of causation.
       </p>
       <div id="val-table"></div>
 
