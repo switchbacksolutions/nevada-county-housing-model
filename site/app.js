@@ -613,10 +613,14 @@ function renderExplained() {
   const hist = DATA.history;
   const grew = 100 * (hist.at(-1).population / hist[0].population - 1);
   const first = ex[cities[0]];
-  const parts = cities.map((c) => `${pct(ex[c].population_pct, 0)} in ${c} (${Math.round((100 * ex[c].population_pct) / ex[c].actual_pct)}% of its ${pct(ex[c].actual_pct, 0)} change)`);
+  const share = (c) => Math.round((100 * ex[c].population_pct) / ex[c].actual_pct);
+  const [c1, c2] = cities;
+  const lo = Math.min(...cities.map((c) => ex[c].population_lo));
+  const hi = Math.max(...cities.map((c) => ex[c].population_hi));
   document.getElementById("explained-lede").textContent =
-    `The county grew about ${grew.toFixed(0)}% from ${first.start_year} to ${first.end_year}. Applying the model to that growth gives a price change that goes with it of ${parts.join(" and ")}. ` +
-    "This is the model's own arithmetic, not a finding about what happened. Responses beyond year 10 hold the year-10 value. The rest is other forces the model holds fixed, such as rates, incomes, the pandemic and insurance.";
+    `The county grew about ${grew.toFixed(0)}% since ${first.start_year}. Run through the model's own arithmetic, that growth goes with roughly ${share(c1)}% of ${c1}'s ${ex[c1].actual_pct.toFixed(0)}% real price change and ${share(c2)}% of ${c2}'s ${ex[c2].actual_pct.toFixed(0)}%. ` +
+    `The 90% range on the population part runs from ${lo.toFixed(0)}% to ${hi.toFixed(0)}%, so it crosses zero. ` +
+    "The rest is other forces the model holds fixed: mortgage rates, incomes, the pandemic, insurance. Responses beyond ten years after a change hold the ten-year value.";
   waterfallChart(document.getElementById("explained-chart"), ex);
   table(
     document.getElementById("explained-table"),
