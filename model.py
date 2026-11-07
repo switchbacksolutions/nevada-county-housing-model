@@ -5,13 +5,14 @@ and year fixed effects. Stage 2 maps Nevada County price growth to each city. Ru
 """
 
 import json
-import warnings
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
+
+from analysis.county_model import SEED, coef_draws, fit_panel, long_run, peer_counties, spec_curve
 
 ROOT = Path(__file__).parent
 DATA, OUT, SITE = ROOT / "data", ROOT / "output", ROOT / "site"
@@ -20,7 +21,7 @@ CITIES = ["Grass Valley", "Nevada City"]
 BASE_YEAR = 2025  # last complete year of city prices; projections start the year after
 HORIZON = 10
 DRAWS = 10_000
-RNG = np.random.default_rng(2026)
+PEER_MAX_POP = 200_000
 
 # Slots 1-4 of the dataviz reference palette (light mode), validated for adjacent lines.
 COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]
@@ -48,6 +49,10 @@ def load() -> tuple[pd.DataFrame, pd.DataFrame]:
     p["dlp_lag"] = p.groupby("fips")["dlp"].shift()
     p["dlpop"] = g["population"].transform(lambda s: np.log(s).diff())
     p["dlpop_lag"] = p.groupby("fips")["dlpop"].shift()
+    p["dlpop_pos"] = p["dlpop"].clip(lower=0)
+    p["dlpop_neg"] = p["dlpop"].clip(upper=0)
+    p["dlp_lag2"] = p.groupby("fips")["dlp"].shift(2)
+    p["dlp_lag3"] = p.groupby("fips")["dlp"].shift(3)
     p["dlpop_lead"] = p.groupby("fips")["dlpop"].shift(-1)
     p["dlinc"] = g["income_pc"].transform(lambda s: np.log(s).diff()) - g["deflator"].transform(lambda s: np.log(s).diff())
     p["permits_pk_lag"] = (1000 * p["permits"] / p["population"]).groupby(p["fips"]).shift()
@@ -57,36 +62,9 @@ def load() -> tuple[pd.DataFrame, pd.DataFrame]:
     return p, z_real
 
 
-def fit_panel(p: pd.DataFrame, pop_col: str, extra_cols: tuple[str, ...] = ()):
-    """Two-way fixed-effects OLS with standard errors clustered by county and by year."""
-    x_cols = ["dlp_lag", pop_col, "dlinc", "permits_pk_lag", *extra_cols]
-    d = p.dropna(subset=["dlp", *x_cols]).copy()
-    d["county_id"] = d["fips"].astype("category").cat.codes
-    fe = pd.get_dummies(d[["fips", "year"]].astype(str), drop_first=True, dtype=float)
-    X = sm.add_constant(pd.concat([d[x_cols], fe], axis=1))
-    # Two-way clustered covariance is not positive definite for the dummy columns. Only the slopes are used.
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)
-        res = sm.OLS(d["dlp"], X).fit(cov_type="cluster", cov_kwds={"groups": d[["county_id", "year"]].to_numpy()})
-        res.bse
-    res.sample = d
-    return res
-
-
 def fit_city(dl_city: pd.Series, dl_county: pd.Series):
     d = pd.concat([dl_city, dl_county.rename("county")], axis=1).dropna()
     return sm.OLS(d.iloc[:, 0], sm.add_constant(d["county"])).fit(cov_type="HAC", cov_kwds={"maxlags": 2})
-
-
-def draws(res, cols: list[str]) -> np.ndarray:
-    return RNG.multivariate_normal(res.params[cols], res.cov_params().loc[cols, cols], DRAWS)
-
-
-def long_run(res, pop_col: str) -> tuple[float, float, float]:
-    """Long-run elasticity b_pop / (1 - rho) with a 90% interval from coefficient draws."""
-    b = draws(res, [pop_col, "dlp_lag"])
-    point = res.params[pop_col] / (1 - res.params["dlp_lag"])
-    return point, *np.percentile(b[:, 0] / (1 - b[:, 1]), [5, 95])
 
 
 def scenarios(p: pd.DataFrame) -> dict[str, float]:
@@ -105,20 +83,19 @@ def population_effect(county, cities, pop_growth: float, pop_col: str = "dlpop")
 
     The same coefficient draws feed every scenario, so scenario gaps reflect only population.
     """
-    rng_state = RNG.bit_generator.state
-    b = draws(county, [pop_col, "dlp_lag"])
+    b = coef_draws(county, [pop_col, "dlp_lag"], DRAWS)
     d, level = np.zeros(DRAWS), np.zeros((DRAWS, HORIZON))
     for t in range(HORIZON):
         d = b[:, 0] * np.log1p(pop_growth) + b[:, 1] * d
         level[:, t] = level[:, t - 1] + d if t else d
-    out = {city: level * draws(res, ["county"])[:, [0]] for city, res in cities.items()}
-    RNG.bit_generator.state = rng_state
+    # A different seed keeps the pass-through draws independent of the county draws.
+    out = {city: level * coef_draws(res, ["county"], DRAWS, seed=SEED + 1)[:, [0]] for city, res in cities.items()}
     return out
 
 
 def impulse(res, pop_col: str) -> dict[str, list[float]]:
     """Cumulative real price response (%) to a one-time 1% population increase."""
-    b = draws(res, [pop_col, "dlp_lag"])
+    b = coef_draws(res, [pop_col, "dlp_lag"], DRAWS)
     d, level = b[:, 0] * 0.01, np.zeros((DRAWS, HORIZON + 1))
     for t in range(1, HORIZON + 1):
         level[:, t] = level[:, t - 1] + d
@@ -135,7 +112,7 @@ def coef_json(res) -> list[dict]:
     ]
 
 
-def export_site(p, z, county, county_lag, cities):
+def export_site(p, z, county, county_lag, all_fits, cities, peers, curve):
     """Write site/data.json: history, county comparison, model summary, and a scenario grid for the explorer."""
     names = pd.read_csv(DATA / "ca_county_names.csv", dtype={"fips": str}).set_index("fips")["name"]
     nev = p[p["fips"] == NEVADA].set_index("year")
@@ -174,16 +151,22 @@ def export_site(p, z, county, county_lag, cities):
                 lo, med, hi = np.percentile(v, [5, 50, 95], axis=0).round(-2)
                 grid.append({"growth": float(g), "model": model_name, "city": city, "median": med.tolist(), "p5": lo.tolist(), "p95": hi.tolist()})
 
+    # Two decimals, so the site matches results.md.
+    elasticity = {
+        f"{set_name}_{key}": dict(zip(("point", "lo", "hi"), np.round(long_run(res, col, DRAWS), 2).tolist()))
+        for set_name, fits in (("peer", (county, county_lag)), ("all", all_fits))
+        for key, res, col in zip(("same_year", "lagged"), fits, ("dlpop", "dlpop_lag"))
+    }
+    spec_rows = curve.round(3).to_dict("records")
+
     data = {
         "base_year": BASE_YEAR,
         "horizon": HORIZON,
         "cities": CITIES,
         "base_values": {city: round(z.loc[BASE_YEAR, city]) for city in CITIES},
         "trend_growth": round(list(scenarios(p).values())[1], 5),
-        "elasticity": {
-            "same_year": dict(zip(("point", "lo", "hi"), np.round(long_run(county, "dlpop"), 3))),
-            "lagged": dict(zip(("point", "lo", "hi"), np.round(long_run(county_lag, "dlpop_lag"), 3))),
-        },
+        "headline": {"set": "peer", "max_pop": PEER_MAX_POP, "counties": county.sample["fips"].nunique(), **elasticity["peer_same_year"]},
+        "elasticity": elasticity,
         "passthrough": {
             city: {"coef": round(res.params["county"], 3), "lo": round(res.conf_int(0.10).loc["county", 0], 3),
                    "hi": round(res.conf_int(0.10).loc["county", 1], 3), "r2": round(res.rsquared, 3)}
@@ -195,6 +178,7 @@ def export_site(p, z, county, county_lag, cities):
         "impulse": {"same_year": impulse(county, "dlpop"), "lagged": impulse(county_lag, "dlpop_lag")},
         "history": history,
         "counties": {"start": start, "end": end, "rows": counties},
+        "spec_curve": spec_rows,
         "scenario_grid": grid,
     }
     SITE.mkdir(exist_ok=True)
@@ -280,21 +264,26 @@ def main():
     OUT.mkdir(exist_ok=True)
     p, z = load()
 
-    county = fit_panel(p, "dlpop")
-    county_lag = fit_panel(p, "dlpop_lag")
+    peers = peer_counties(p, PEER_MAX_POP)
+    county = fit_panel(p, "dlpop", peers)
+    county_lag = fit_panel(p, "dlpop_lag", peers)
+    all_fits = (fit_panel(p, "dlpop"), fit_panel(p, "dlpop_lag"))
+    curve = spec_curve(p, DRAWS)
+    sign = fit_panel(p, "dlpop_pos", extra_cols=("dlpop_neg",))
     placebo = fit_panel(p, "dlpop_lead")
-    joint = fit_panel(p, "dlpop", ("dlpop_lag", "dlpop_lead"))
+    joint = fit_panel(p, "dlpop", extra_cols=("dlpop_lag", "dlpop_lead"))
     nevada_dlp = p[p["fips"] == NEVADA].set_index("year")["dlp"]
     cities = {city: fit_city(np.log(z[city]).diff(), nevada_dlp) for city in CITIES}
 
-    lr, lr_lo, lr_hi = long_run(county, "dlpop")
-    lr2, lr2_lo, lr2_hi = long_run(county_lag, "dlpop_lag")
+    lr, lr_lo, lr_hi = long_run(county, "dlpop", DRAWS)
+    lr2, lr2_lo, lr2_hi = long_run(county_lag, "dlpop_lag", DRAWS)
+    lr_all = curve.set_index("spec").loc["all/same_year", "lr"]
 
     effects = {name: population_effect(county, cities, g) for name, g in scenarios(p).items()}
     effects_lag = {name: population_effect(county_lag, cities, g, "dlpop_lag") for name, g in scenarios(p).items()}
     plot_history(p, z)
     plot_scenarios(z, effects)
-    export_site(p, z, county, county_lag, cities)
+    export_site(p, z, county, county_lag, all_fits, cities, peers, curve)
 
     rows = [
         f"| Scenario | 10-yr population change | City | {BASE_YEAR + HORIZON} value | Effect vs. flat population | 90% range | Lagged-model effect |",
@@ -317,15 +306,35 @@ def main():
         years = res.model.data.row_labels
         city_rows.append(f"| {city} | {res.params['county']:.2f} | {ci[0]:.2f} to {ci[1]:.2f} | {res.rsquared:.2f} | {years.min()}-{years.max()} |")
 
-    city_table, scenario_table = "\n".join(city_rows), "\n".join(rows)
+    curve_rows = ["| Specification | Counties | Population coefficient (s.e.) | Long-run elasticity | 90% interval | Observations |", "|---|---|---:|---:|---|---:|"]
+    for r in curve.itertuples():
+        curve_rows.append(
+            f"| {r.spec} | {r.n_counties} | {r.b_pop:.3f} ({r.se:.3f}) | {r.lr:.2f} | {r.lr_lo:.2f} to {r.lr_hi:.2f} | {r.n_obs:,} |"
+        )
+    ci_sign = sign.conf_int(0.10)
+    b_pos, b_neg = sign.params["dlpop_pos"], sign.params["dlpop_neg"]
+    overlap = max(ci_sign.loc["dlpop_pos", 0], ci_sign.loc["dlpop_neg", 0]) <= min(ci_sign.loc["dlpop_pos", 1], ci_sign.loc["dlpop_neg", 1])
+    sign_sentence = (
+        f"The sign split gives {b_pos:.2f} for growth and {b_neg:.2f} for decline, with wide intervals; "
+        "the data do not reliably separate the two directions."
+        if overlap else
+        f"The sign split gives {b_pos:.2f} for growth and {b_neg:.2f} for decline; declines go with larger price moves."
+    )
+    nev_pop = round(p[(p["fips"] == NEVADA) & (p["year"] == BASE_YEAR)]["population"].iloc[0], -3)
+
+    city_table, scenario_table, curve_table = "\n".join(city_rows), "\n".join(rows), "\n".join(curve_rows)
     report = f"""# Nevada County population and home values: model results
 
 All prices are real {BASE_YEAR} dollars (CPI-U deflated). Generated by `model.py`.
 
-## Stage 1: population and real home-price growth, California counties
+## Stage 1: population and real home-price growth, peer counties
 
 Dependent variable: annual log change in each county's real FHFA house price index.
 Year fixed effects absorb statewide and national drivers such as mortgage rates.
+
+Headline set: the {len(peers)} California counties with mean population under {PEER_MAX_POP:,}, the set that includes Nevada County ({nev_pop:,.0f}).
+{county.sample['fips'].nunique()} of them have price data.
+Large counties show a much larger association (see specification curve).
 
 {coef_table(county)}
 
@@ -339,7 +348,18 @@ The same model with last year's population growth in place of this year's, a sec
 
 Long-run elasticity with lagged population: {lr2:.2f} (90% interval {lr2_lo:.2f} to {lr2_hi:.2f}).
 
+## Specification curve
+
+The same model under different samples and timing choices. The all-county same-year elasticity is {lr_all:.2f}.
+The peer-set headline is {lr:.2f}.
+
+{curve_table}
+
+{sign_sentence}
+
 ## Placebo check
+
+These fits use all counties.
 
 Next year's population growth, which this year's prices cannot respond to, is included as a
 regressor. If it predicts this year's price growth, the population coefficient reflects shared

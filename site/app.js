@@ -182,10 +182,11 @@ function table(container, headers, rows, numeric = []) {
 function renderTiles() {
   const el = document.getElementById("tiles");
   el.replaceChildren();
-  const { same_year: sy, lagged: lg } = DATA.elasticity;
+  const hl = DATA.headline;
+  const lg = DATA.elasticity.peer_lagged;
   const pass = Object.values(DATA.passthrough).map((p) => p.coef);
   const tiles = [
-    ["Long-run price change for 1% more people", `${sy.point.toFixed(1)}% same-year · ${lg.point.toFixed(1)}% lagged`, "Two timing assumptions, both associations, after inflation"],
+    ["Long-run price change for 1% more people, peer counties", `${hl.point.toFixed(1)}% same-year · ${lg.point.toFixed(1)}% lagged`, `${hl.counties} counties under ${hl.max_pop.toLocaleString("en-US")} people. Two timing assumptions, both associations, after inflation`],
     ["City prices follow the county", pass.map((v) => v.toFixed(2)).join(" / "), "Grass Valley / Nevada City change per 1% county change"],
     ...DATA.cities.map((c) => [`Typical ${c} home, ${DATA.base_year}`, usd(DATA.base_values[c]), "Zillow Home Value Index, yearly average"]),
   ];
@@ -450,10 +451,54 @@ function renderImpulse() {
   );
 }
 
+const SPEC_LABELS = {
+  "peer/same_year": "Peer counties, same-year (headline)",
+  "peer/lagged": "Peer counties, lagged",
+  "all/same_year": "All counties, same-year",
+  "all/lagged": "All counties, lagged",
+  "large/same_year": "Large counties only",
+  "all/2001-2010": "All counties, 2001-2010",
+  "all/2011-2024": "All counties, 2011-2024",
+  "all/drop_2020_2022": "All counties, without 2020-2022",
+  "all/three_price_lags": "All counties, three price lags",
+  "all/sign_split": "All counties, sign split (growth term)",
+};
+
+/** Dot-and-range chart. rows: [{spec, lr, lr_lo, lr_hi}], one per line; the headline row is filled. */
+function rangeChart(container, rows, headline) {
+  container.replaceChildren();
+  const rowH = 28;
+  const width = Math.max(container.clientWidth, 300);
+  const m = { top: 8, right: 16, bottom: 28, left: Math.min(230, width * 0.42) };
+  const height = m.top + m.bottom + rowH * rows.length;
+  const xt = niceTicks(Math.min(0, ...rows.map((r) => r.lr_lo)), Math.max(...rows.map((r) => r.lr_hi)), 5);
+  const x = linear([xt.lo, xt.hi], [m.left, width - m.right]);
+  const svg = s("svg", { viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": "Long-run price change for 1% more people under each sample choice, with 90% ranges" }, container);
+  const ax = s("g", { class: "axis" }, svg);
+  for (const v of xt.ticks) {
+    s("line", { class: "gridline", x1: x(v), x2: x(v), y1: m.top, y2: height - m.bottom }, ax);
+    s("text", { x: x(v), y: height - m.bottom + 18, "text-anchor": "middle" }, ax, v.toFixed(1) + "%");
+  }
+  rows.forEach((r, i) => {
+    const cy = m.top + rowH * (i + 0.5);
+    const isHead = r.spec === headline;
+    const g = s("g", { tabindex: 0 }, svg);
+    s("text", { class: "direct-label", x: m.left - 10, y: cy, "text-anchor": "end", "dominant-baseline": "middle" }, g, SPEC_LABELS[r.spec] || r.spec);
+    s("line", { x1: x(r.lr_lo), x2: x(r.lr_hi), y1: cy, y2: cy, stroke: css("--series-1"), "stroke-width": 2, "stroke-linecap": "round" }, g);
+    s("circle", { cx: x(r.lr), cy, r: 5, fill: isHead ? css("--series-1") : css("--surface-1"), stroke: css("--series-1"), "stroke-width": 2 }, g);
+    s("rect", { x: 0, y: cy - rowH / 2, width, height: rowH, fill: "transparent" }, g);
+    const show = (evt) => showTip(evt, SPEC_LABELS[r.spec] || r.spec, [[css("--series-1"), "90% range", `${r.lr.toFixed(2)}% (${r.lr_lo.toFixed(2)} to ${r.lr_hi.toFixed(2)})`]]);
+    g.addEventListener("pointermove", show);
+    g.addEventListener("pointerleave", hideTip);
+    g.addEventListener("focus", () => { const b = g.getBoundingClientRect(); show({ clientX: b.left + x(r.lr), clientY: b.top }); });
+    g.addEventListener("blur", hideTip);
+  });
+}
+
 function renderMethod() {
   const p = DATA.panel;
   document.getElementById("method-panel").textContent =
-    `The model compares yearly price growth after inflation with population growth in ${p.counties} California counties from ${p.first_year} to ${p.last_year} (${p.n.toLocaleString("en-US")} county-years). ` +
+    `The headline model compares yearly price growth after inflation with population growth in ${p.counties} California counties with fewer than ${DATA.headline.max_pop.toLocaleString("en-US")} people, the group that includes Nevada County, from ${p.first_year} to ${p.last_year} (${p.n.toLocaleString("en-US")} county-years). ` +
     "It also accounts for last year's price growth, income growth and new building permits.";
   const pass = Object.entries(DATA.passthrough).map(([c, v]) => `${c} ${v.coef.toFixed(2)} (90% range ${v.lo.toFixed(2)} to ${v.hi.toFixed(2)})`);
   document.getElementById("method-pass").textContent =
@@ -467,9 +512,13 @@ function renderMethod() {
     const div = h("div", {}, box);
     table(div, ["Term", "Coefficient", "90% interval", "p-value"],
       DATA.coefficients[key].map((r) => [r.term, r.coef.toFixed(3), `${r.lo.toFixed(3)} to ${r.hi.toFixed(3)}`, r.p.toFixed(3)]), [1, 2, 3]);
-    const e = DATA.elasticity[key];
+    const e = DATA.elasticity[`peer_${key}`];
     h("p", {}, box, `Long-run price change per 1% more people: ${e.point.toFixed(2)}% (90% interval ${e.lo.toFixed(2)} to ${e.hi.toFixed(2)}).`);
   }
+}
+
+function renderSpecCurve() {
+  rangeChart(document.getElementById("spec-chart"), DATA.spec_curve, "peer/same_year");
 }
 
 function renderAll() {
@@ -479,6 +528,7 @@ function renderAll() {
   renderCounties();
   renderImpulse();
   renderMethod();
+  renderSpecCurve();
 }
 
 function setupTheme() {
