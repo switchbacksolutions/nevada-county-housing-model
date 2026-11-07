@@ -2,7 +2,8 @@
 
 Stage 1 fits real price growth on population growth with county and year fixed effects. The headline
 uses the California counties under 200,000 people, the set that includes Nevada County. The specification
-curve also fits all counties. Stage 2 maps Nevada County price growth to each city. Run fetch_data.py first.
+curve also fits all counties. Local projections give the price response at each horizon, and the scenarios
+convolve them with a growth path. Stage 2 maps Nevada County price growth to each city. Run fetch_data.py first.
 """
 
 import json
@@ -13,7 +14,9 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 
-from analysis.county_model import PEER_MAX_POP, SEED, coef_draws, fit_panel, long_run, peer_counties, spec_curve
+from analysis.county_model import (
+    PEER_MAX_POP, SEED, coef_draws, fit_panel, long_difference, long_run, lp_draws, path_effect, peer_counties, spec_curve,
+)
 
 ROOT = Path(__file__).parent
 DATA, OUT, SITE = ROOT / "data", ROOT / "output", ROOT / "site"
@@ -22,6 +25,7 @@ CITIES = ["Grass Valley", "Nevada City"]
 BASE_YEAR = 2025  # last complete year of city prices; projections start the year after
 HORIZON = 10
 DRAWS = 10_000
+N_BOOT = 1000  # county bootstrap resamples for the local projections
 
 # Slots 1-4 of the dataviz reference palette (light mode), validated for adjacent lines.
 COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]
@@ -47,6 +51,7 @@ def load() -> tuple[pd.DataFrame, pd.DataFrame]:
     g = p.groupby("fips")
     p["dlp"] = g["hpi"].transform(lambda s: np.log(s).diff()) - g["deflator"].transform(lambda s: np.log(s).diff())
     p["dlp_lag"] = p.groupby("fips")["dlp"].shift()
+    p["lrp"] = np.log(p["hpi"]) - np.log(p["deflator"])
     p["dlpop"] = g["population"].transform(lambda s: np.log(s).diff())
     p["dlpop_lag"] = p.groupby("fips")["dlpop"].shift()
     p["dlpop_pos"] = p["dlpop"].clip(lower=0)
@@ -78,30 +83,37 @@ def scenarios(p: pd.DataFrame) -> dict[str, float]:
     }
 
 
-def population_effect(county, cities, pop_growth: float, pop_col: str = "dlpop") -> dict[str, np.ndarray]:
-    """Log difference in real city value vs. a flat-population path, shape (DRAWS, HORIZON).
+def city_draws(cities) -> dict[str, np.ndarray]:
+    """Pass-through draws, one per bootstrap resample. A different seed keeps them independent of the county draws."""
+    return {city: coef_draws(res, ["county"], N_BOOT, seed=SEED + 1)[:, 0] for city, res in cities.items()}
 
-    The same coefficient draws feed every scenario, so scenario gaps reflect only population.
+
+def population_effect(impulse: np.ndarray, cities_draws: dict[str, np.ndarray], growth_path: np.ndarray) -> dict[str, np.ndarray]:
+    """Log difference in real city value vs. a flat-population path, shape (N_BOOT, len(growth_path)).
+
+    The same impulse draws feed every scenario, so scenario gaps reflect only population.
     """
-    b = coef_draws(county, [pop_col, "dlp_lag"], DRAWS)
-    d, level = np.zeros(DRAWS), np.zeros((DRAWS, HORIZON))
-    for t in range(HORIZON):
-        d = b[:, 0] * np.log1p(pop_growth) + b[:, 1] * d
-        level[:, t] = level[:, t - 1] + d if t else d
-    # A different seed keeps the pass-through draws independent of the county draws.
-    out = {city: level * coef_draws(res, ["county"], DRAWS, seed=SEED + 1)[:, [0]] for city, res in cities.items()}
-    return out
+    county = path_effect(impulse, growth_path)
+    return {city: county * d[:, None] for city, d in cities_draws.items()}
 
 
-def impulse(res, pop_col: str) -> dict[str, list[float]]:
-    """Cumulative real price response (%) to a one-time 1% population increase."""
+def band(pct: np.ndarray) -> dict[str, list[float]]:
+    return {k: np.round(np.percentile(pct, q, axis=0), 3).tolist() for k, q in (("p5", 5), ("median", 50), ("p95", 95))}
+
+
+def impulse_lp(imp: np.ndarray) -> dict[str, list[float]]:
+    """Cumulative real price response (%) to a one-time 1% population increase, with 0 at arrival."""
+    return band(100 * np.expm1(0.01 * np.hstack([np.zeros((len(imp), 1)), imp])))
+
+
+def impulse_ar1(res, pop_col: str) -> dict[str, list[float]]:
+    """The momentum model's cumulative real price response (%) to a one-time 1% population increase."""
     b = coef_draws(res, [pop_col, "dlp_lag"], DRAWS)
     d, level = b[:, 0] * 0.01, np.zeros((DRAWS, HORIZON + 1))
     for t in range(1, HORIZON + 1):
         level[:, t] = level[:, t - 1] + d
         d = b[:, 1] * d
-    pct = 100 * np.expm1(level)
-    return {k: np.round(np.percentile(pct, q, axis=0), 3).tolist() for k, q in (("p5", 5), ("median", 50), ("p95", 95))}
+    return band(100 * np.expm1(level))
 
 
 def coef_json(res) -> list[dict]:
@@ -112,7 +124,7 @@ def coef_json(res) -> list[dict]:
     ]
 
 
-def export_site(p, z, county, county_lag, all_fits, cities, curve):
+def export_site(p, z, county, county_lag, all_fits, cities, curve, imps):
     """Write site/data.json: history, county comparison, model summary, and a scenario grid for the explorer."""
     names = pd.read_csv(DATA / "ca_county_names.csv", dtype={"fips": str}).set_index("fips")["name"]
     nev = p[p["fips"] == NEVADA].set_index("year")
@@ -143,11 +155,12 @@ def export_site(p, z, county, county_lag, all_fits, cities, curve):
         })
 
     grid = []
+    cd = city_draws(cities)
     for g in np.round(np.arange(-1.0, 3.01, 0.1), 1):
-        for model_name, res, col in (("same_year", county, "dlpop"), ("lagged", county_lag, "dlpop_lag")):
-            eff = population_effect(res, cities, g / 100, col)
+        for model_name, imp in imps.items():
+            eff = population_effect(imp, cd, np.full(HORIZON, g / 100))
             for city in CITIES:
-                v = z.loc[BASE_YEAR, city] * np.exp(np.hstack([np.zeros((DRAWS, 1)), eff[city]]))
+                v = z.loc[BASE_YEAR, city] * np.exp(np.hstack([np.zeros((N_BOOT, 1)), eff[city]]))
                 lo, med, hi = np.percentile(v, [5, 50, 95], axis=0).round(-2)
                 grid.append({"growth": float(g), "model": model_name, "city": city, "median": med.tolist(), "p5": lo.tolist(), "p95": hi.tolist()})
 
@@ -157,6 +170,7 @@ def export_site(p, z, county, county_lag, all_fits, cities, curve):
         for set_name, fits in (("peer", (county, county_lag)), ("all", all_fits))
         for key, res, col in zip(("same_year", "lagged"), fits, ("dlpop", "dlpop_lag"))
     }
+    lp10 = dict(zip(("point", "lo", "hi"), np.round(np.percentile(imps["peer"][:, HORIZON - 1], [50, 5, 95]), 2).tolist()))
     spec_rows = curve.round({"lr": 2, "lr_lo": 2, "lr_hi": 2}).round(3).to_dict("records")
 
     data = {
@@ -165,7 +179,7 @@ def export_site(p, z, county, county_lag, all_fits, cities, curve):
         "cities": CITIES,
         "base_values": {city: round(z.loc[BASE_YEAR, city]) for city in CITIES},
         "trend_growth": round(list(scenarios(p).values())[1], 5),
-        "headline": {"set": "peer", "max_pop": PEER_MAX_POP, "counties": county.sample["fips"].nunique(), **elasticity["peer_same_year"]},
+        "headline": {"set": "peer", "max_pop": PEER_MAX_POP, "counties": county.sample["fips"].nunique(), **elasticity["peer_same_year"], "lp10": lp10},
         "elasticity": elasticity,
         "passthrough": {
             city: {"coef": round(res.params["county"], 3), "lo": round(res.conf_int(0.10).loc["county", 0], 3),
@@ -175,7 +189,7 @@ def export_site(p, z, county, county_lag, all_fits, cities, curve):
         "coefficients": {"same_year": coef_json(county), "lagged": coef_json(county_lag)},
         "panel": {"counties": county.sample["fips"].nunique(), "first_year": int(county.sample["year"].min()),
                   "last_year": int(county.sample["year"].max()), "n": int(county.nobs)},
-        "impulse": {"same_year": impulse(county, "dlpop"), "lagged": impulse(county_lag, "dlpop_lag")},
+        "impulse": {"lp": impulse_lp(imps["peer"]), "ar1": impulse_ar1(county, "dlpop")},
         "history": history,
         "counties": {"start": start, "end": end, "rows": counties},
         "spec_curve": spec_rows,
@@ -226,7 +240,7 @@ def plot_scenarios(z, effects):
         ax.axhline(base / 1e3, color=INK_2, linewidth=1, linestyle="--")
         ax.annotate("Flat population", (years[-1], base / 1e3), xytext=(0, -12), textcoords="offset points", ha="right", fontsize=8, color=INK_2)
         for (name, eff), color in zip(effects.items(), COLORS):
-            v = base * np.exp(np.hstack([np.zeros((DRAWS, 1)), eff[city]])) / 1e3
+            v = base * np.exp(np.hstack([np.zeros((len(eff[city]), 1)), eff[city]])) / 1e3
             med = np.median(v, axis=0)
             if name.startswith("Growth"):
                 lo, hi = np.percentile(v, [5, 95], axis=0)
@@ -279,26 +293,42 @@ def main():
     lr2, lr2_lo, lr2_hi = long_run(county_lag, "dlpop_lag", DRAWS)
     lr_all = curve.set_index("spec").loc["all/same_year", "lr"]
 
-    effects = {name: population_effect(county, cities, g) for name, g in scenarios(p).items()}
-    effects_lag = {name: population_effect(county_lag, cities, g, "dlpop_lag") for name, g in scenarios(p).items()}
+    imps = {"peer": lp_draws(p, "dlpop", peers, n_boot=N_BOOT), "all": lp_draws(p, "dlpop", n_boot=N_BOOT)}
+    cd = city_draws(cities)
+    effects = {name: population_effect(imps["peer"], cd, np.full(HORIZON, g)) for name, g in scenarios(p).items()}
+    effects_all = {name: population_effect(imps["all"], cd, np.full(HORIZON, g)) for name, g in scenarios(p).items()}
     plot_history(p, z)
     plot_scenarios(z, effects)
-    export_site(p, z, county, county_lag, all_fits, cities, curve)
+    export_site(p, z, county, county_lag, all_fits, cities, curve, imps)
 
     rows = [
-        f"| Scenario | 10-yr population change | City | {BASE_YEAR + HORIZON} value | Effect vs. flat population | 90% range | Lagged-model effect |",
+        f"| Scenario | 10-yr population change | City | {BASE_YEAR + HORIZON} value | Effect vs. flat population | 90% range | All-counties effect |",
         "|---|---:|---|---:|---:|---|---:|",
     ]
-    for (name, eff), eff_lag, g in zip(effects.items(), effects_lag.values(), scenarios(p).values()):
+    for (name, eff), eff_all, g in zip(effects.items(), effects_all.values(), scenarios(p).values()):
         for city in CITIES:
             base = z.loc[BASE_YEAR, city]
             dollars = base * (np.exp(eff[city][:, -1]) - 1)
             lo, med, hi = np.percentile(dollars, [5, 50, 95])
-            med_lag = base * (np.exp(np.median(eff_lag[city][:, -1])) - 1)
+            med_all = base * (np.exp(np.median(eff_all[city][:, -1])) - 1)
             rows.append(
                 f"| {name} | {(1 + g) ** HORIZON - 1:+.1%} | {city} | ${base + med:,.0f} | "
-                f"{med / base:+.1%} (${med:+,.0f}) | ${lo:+,.0f} to ${hi:+,.0f} | {med_lag / base:+.1%} (${med_lag:+,.0f}) |"
+                f"{med / base:+.1%} (${med:+,.0f}) | ${lo:+,.0f} to ${hi:+,.0f} | {med_all / base:+.1%} (${med_all:+,.0f}) |"
             )
+
+    lp_rows = ["| Years after the change | Peer counties | 90% interval | All counties | 90% interval |", "|---:|---:|---|---:|---|"]
+    for j in range(HORIZON):
+        cells = []
+        for imp in imps.values():
+            lo, med, hi = np.percentile(imp[:, j], [5, 50, 95])
+            cells.append(f"{med:.2f} | {lo:.2f} to {hi:.2f}")
+        lp_rows.append(f"| {j} | {' | '.join(cells)} |")
+    lp10_med, lp10_lo, lp10_hi = np.percentile(imps["peer"][:, HORIZON - 1], [50, 5, 95])
+
+    ld_rows = ["| Window (years) | Peer counties (s.e.) | Windows | All counties (s.e.) | Windows |", "|---:|---:|---:|---:|---:|"]
+    for h in (1, 5, 10):
+        ld = [long_difference(p, "dlpop", h, sel) for sel in (peers, None)]
+        ld_rows.append(f"| {h} | " + " | ".join(f"{r['b']:.2f} ({r['se']:.2f}) | {r['n']:,}" for r in ld) + " |")
 
     city_rows = ["| City | Pass-through of county price growth | 90% CI | R² | Years |", "|---|---:|---|---:|---|"]
     for city, res in cities.items():
@@ -322,6 +352,7 @@ def main():
     nev_pop = round(p[(p["fips"] == NEVADA) & (p["year"] == BASE_YEAR)]["population"].iloc[0], -3)
 
     city_table, scenario_table, curve_table = "\n".join(city_rows), "\n".join(rows), "\n".join(curve_rows)
+    lp_table, ld_table = "\n".join(lp_rows), "\n".join(ld_rows)
     report = f"""# Nevada County population and home values: model results
 
 All prices are real {BASE_YEAR} dollars (CPI-U deflated). Generated by `model.py`.
@@ -337,7 +368,7 @@ Large counties show a much larger association (see specification curve).
 
 {coef_table(county)}
 
-**Long-run elasticity of price to population: {lr:.2f}** (90% interval {lr_lo:.2f} to {lr_hi:.2f}).
+**Long-run elasticity of price to population, momentum model: {lr:.2f}** (90% interval {lr_lo:.2f} to {lr_hi:.2f}).
 A county population that is 1% larger, sustained, goes with real home prices about {lr:.1f}% higher
 once price momentum plays out.
 
@@ -347,10 +378,29 @@ The same model with last year's population growth in place of this year's, a sec
 
 Long-run elasticity with lagged population: {lr2:.2f} (90% interval {lr2_lo:.2f} to {lr2_hi:.2f}).
 
+## Local projections
+
+Each row is a separate fit: the log real price change from the year before to h years after, on this
+year's population growth, with the same controls and county and year fixed effects. The value is the
+cumulative price change in percent for a one-year 1% population change. Intervals come from {N_BOOT:,}
+county block bootstrap resamples; every horizon is refit on the same resample.
+
+{lp_table}
+
+**Price change after {HORIZON} years for 1% more people, peer counties: {lp10_med:.2f}** (90% interval {lp10_lo:.2f} to {lp10_hi:.2f}).
+
+## Long-difference check
+
+Log real price change on log population change over non-overlapping windows, with window-end year
+effects and standard errors clustered by county.
+The {HORIZON}-year long-difference coefficient is the direct estimate of the horizon the scenarios show.
+
+{ld_table}
+
 ## Specification curve
 
 The same model under different samples and timing choices. The all-county same-year elasticity is {lr_all:.2f}.
-The peer-set headline is {lr:.2f}.
+The peer-set same-year elasticity is {lr:.2f}.
 
 {curve_table}
 
@@ -382,10 +432,11 @@ Annual log change in each city's real Zillow Home Value Index on the Nevada Coun
 
 ## Population scenarios, {BASE_YEAR + 1}-{BASE_YEAR + HORIZON}
 
-Each scenario holds Nevada County population growth at a constant rate. Every other driver stays
+Each scenario holds Nevada County population growth at a constant rate. Each year's growth is
+combined with the local-projection response at every later horizon. Every other driver stays
 where it was in {BASE_YEAR}, so the {BASE_YEAR + HORIZON} value is the {BASE_YEAR} value plus the population effect only.
-It is not a forecast of the market. Ranges come from {DRAWS:,} draws of the coefficients.
-The last column uses the lagged-population model, the same association under the lagged timing assumption.
+It is not a forecast of the market. Ranges come from {N_BOOT:,} county bootstrap resamples of the peer-county local projections.
+The last column uses the local projections fit on all counties.
 
 {scenario_table}
 

@@ -13,7 +13,7 @@ const signed = (v, digits = 1) => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(
 const signedUsd = (v) => (v >= 0 ? "+" : "−") + usd(Math.abs(v));
 const pct = (v, digits = 1) => signed(v, digits) + "%";
 
-const state = { growth: 0.4, model: "same_year" };
+const state = { growth: 0.4, model: "peer" };
 let DATA;
 
 function h(tag, attrs = {}, parent, text) {
@@ -183,10 +183,10 @@ function renderTiles() {
   const el = document.getElementById("tiles");
   el.replaceChildren();
   const hl = DATA.headline;
-  const lg = DATA.elasticity.peer_lagged;
+  const lp = hl.lp10;
   const pass = Object.values(DATA.passthrough).map((p) => p.coef);
   const tiles = [
-    ["Long-run price change for 1% more people, peer counties", `${hl.point.toFixed(1)}% same-year · ${lg.point.toFixed(1)}% lagged`, `${hl.counties} counties under ${hl.max_pop.toLocaleString("en-US")} people. Two timing assumptions, both associations, after inflation`],
+    [`Price change after ${DATA.horizon} years for 1% more people, peer counties`, pct(lp.point), `${hl.counties} counties under ${hl.max_pop.toLocaleString("en-US")} people. 90% range ${lp.lo.toFixed(1)}% to ${lp.hi.toFixed(1)}%. An association, after inflation`],
     ["City prices follow the county", pass.map((v) => v.toFixed(2)).join(" / "), "Grass Valley / Nevada City change per 1% county change"],
     ...DATA.cities.map((c) => [`Typical ${c} home, ${DATA.base_year}`, usd(DATA.base_values[c]), "Zillow Home Value Index, yearly average"]),
   ];
@@ -307,7 +307,7 @@ function setupControls() {
   syncPresets();
 
   const modelEl = document.getElementById("model-choice");
-  for (const [label, key] of [["Same-year", "same_year"], ["Lagged", "lagged"]]) {
+  for (const [label, key] of [["Peer counties", "peer"], ["All counties", "all"]]) {
     const b = h("button", { type: "button", role: "radio", "aria-checked": String(state.model === key), "data-m": key }, modelEl, label);
     b.addEventListener("click", () => {
       state.model = key;
@@ -423,36 +423,37 @@ function renderCounties() {
 
 function renderImpulse() {
   const yrs = Array.from({ length: DATA.horizon + 1 }, (_, i) => i);
-  const spec = [["same_year", "Same-year estimate", css("--series-1")], ["lagged", "Lagged estimate", css("--series-2")]];
+  const spec = [["lp", "Direct estimate by horizon (local projection)", css("--series-1")], ["ar1", "Price-momentum model (AR(1))", css("--series-2")]];
+  const imp = DATA.impulse;
   lineChart(document.getElementById("impulse-chart"), {
-    title: "Cumulative change in real home prices after a one-time 1% population increase",
-    legendItems: spec.flatMap(([, name, color]) => [{ name, color }]).concat([{ name: "90% range", color: css("--text-muted"), kind: "band" }]),
+    title: "Cumulative change in real home prices after a one-time 1% population increase, peer counties",
+    legendItems: spec.map(([, name, color]) => ({ name, color })).concat([{ name: "90% range, direct estimate", color: spec[0][2], kind: "band" }]),
     height: 320,
     yFormat: (v) => v.toFixed(1) + "%",
     xFormat: (v) => (v === 0 ? "Arrival" : `Year ${v}`),
     xTicks: yrs.filter((v) => v % 2 === 0),
     rightMargin: 64,
-    series: spec.map(([k, name, color]) => {
-      const r = DATA.impulse[k];
-      return {
-        name, color,
-        points: yrs.map((i) => ({ x: i, y: r.median[i] })),
-        band: yrs.map((i) => ({ x: i, lo: r.p5[i], hi: r.p95[i] })),
-        endLabel: pct(r.median.at(-1)),
-      };
-    }),
-    tooltip: (i) => spec.map(([k, name, color]) => [color, name, `${pct(DATA.impulse[k].median[i], 2)} (${DATA.impulse[k].p5[i].toFixed(1)} to ${DATA.impulse[k].p95[i].toFixed(1)})`]),
+    series: spec.map(([k, name, color]) => ({
+      name, color,
+      points: yrs.map((i) => ({ x: i, y: imp[k].median[i] })),
+      band: k === "lp" ? yrs.map((i) => ({ x: i, lo: imp.lp.p5[i], hi: imp.lp.p95[i] })) : undefined,
+      endLabel: pct(imp[k].median.at(-1)),
+    })),
+    tooltip: (i) => [
+      [spec[0][2], "direct estimate", `${pct(imp.lp.median[i], 2)} (${imp.lp.p5[i].toFixed(1)} to ${imp.lp.p95[i].toFixed(1)})`],
+      [spec[1][2], "momentum model", pct(imp.ar1.median[i], 2)],
+    ],
   });
   table(
     document.getElementById("impulse-table"),
-    ["Years after the increase", "Same-year estimate", "Lagged estimate"],
-    yrs.map((i) => [i, pct(DATA.impulse.same_year.median[i], 2), pct(DATA.impulse.lagged.median[i], 2)]),
-    [1, 2],
+    ["Years after the increase", "Direct estimate", "90% range", "Momentum model"],
+    yrs.map((i) => [i, pct(imp.lp.median[i], 2), `${imp.lp.p5[i].toFixed(2)} to ${imp.lp.p95[i].toFixed(2)}`, pct(imp.ar1.median[i], 2)]),
+    [1, 2, 3],
   );
 }
 
 const SPEC_LABELS = {
-  "peer/same_year": "Peer counties, same-year (headline)",
+  "peer/same_year": "Peer counties, same-year",
   "peer/lagged": "Peer counties, lagged",
   "all/same_year": "All counties, same-year",
   "all/lagged": "All counties, lagged",
@@ -513,7 +514,7 @@ function renderMethod() {
     table(div, ["Term", "Coefficient", "90% interval", "p-value"],
       DATA.coefficients[key].map((r) => [r.term, r.coef.toFixed(3), `${r.lo.toFixed(3)} to ${r.hi.toFixed(3)}`, r.p.toFixed(3)]), [1, 2, 3]);
     const e = DATA.elasticity[`peer_${key}`];
-    h("p", {}, box, `Long-run price change per 1% more people: ${e.point.toFixed(2)}% (90% interval ${e.lo.toFixed(2)} to ${e.hi.toFixed(2)}).`);
+    h("p", {}, box, `Price change per 1% more people, long-run, momentum model: ${e.point.toFixed(2)}% (90% interval ${e.lo.toFixed(2)} to ${e.hi.toFixed(2)}).`);
   }
 }
 

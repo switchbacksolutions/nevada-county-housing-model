@@ -20,7 +20,7 @@ Large counties show a much larger association (see specification curve).
 
 27 counties, years 2001-2024, n = 648. County and year fixed effects. Standard errors clustered by county and year.
 
-**Long-run elasticity of price to population: 1.07** (90% interval 0.44 to 1.69).
+**Long-run elasticity of price to population, momentum model: 1.07** (90% interval 0.44 to 1.69).
 A county population that is 1% larger, sustained, goes with real home prices about 1.1% higher
 once price momentum plays out.
 
@@ -37,10 +37,44 @@ The same model with last year's population growth in place of this year's, a sec
 
 Long-run elasticity with lagged population: 0.47 (90% interval -0.13 to 0.97).
 
+## Local projections
+
+Each row is a separate fit: the log real price change from the year before to h years after, on this
+year's population growth, with the same controls and county and year fixed effects. The value is the
+cumulative price change in percent for a one-year 1% population change. Intervals come from 1,000
+county block bootstrap resamples; every horizon is refit on the same resample.
+
+| Years after the change | Peer counties | 90% interval | All counties | 90% interval |
+|---:|---:|---|---:|---|
+| 0 | 0.82 | 0.40 to 1.38 | 1.36 | 1.00 to 1.77 |
+| 1 | 1.54 | 0.80 to 2.36 | 2.85 | 2.19 to 3.55 |
+| 2 | 1.93 | 0.74 to 3.21 | 4.12 | 3.16 to 5.12 |
+| 3 | 2.15 | 0.46 to 4.01 | 4.94 | 3.67 to 6.32 |
+| 4 | 2.56 | 0.46 to 4.98 | 5.74 | 4.11 to 7.38 |
+| 5 | 2.51 | -0.05 to 5.53 | 6.09 | 4.08 to 8.30 |
+| 6 | 2.25 | -0.61 to 5.45 | 5.18 | 3.17 to 7.32 |
+| 7 | 2.06 | -0.71 to 5.50 | 4.23 | 2.19 to 6.58 |
+| 8 | 1.64 | -1.12 to 4.84 | 3.02 | 1.12 to 5.18 |
+| 9 | 1.34 | -1.24 to 4.36 | 2.08 | 0.16 to 4.13 |
+
+**Price change after 10 years for 1% more people, peer counties: 1.34** (90% interval -1.24 to 4.36).
+
+## Long-difference check
+
+Log real price change on log population change over non-overlapping windows, with window-end year
+effects and standard errors clustered by county.
+The 10-year long-difference coefficient is the direct estimate of the horizon the scenarios show.
+
+| Window (years) | Peer counties (s.e.) | Windows | All counties (s.e.) | Windows |
+|---:|---:|---:|---:|---:|
+| 1 | 0.69 (0.16) | 675 | 1.07 (0.18) | 1,375 |
+| 5 | 0.52 (0.19) | 135 | 0.87 (0.19) | 275 |
+| 10 | 0.15 (0.16) | 54 | 0.59 (0.19) | 110 |
+
 ## Specification curve
 
 The same model under different samples and timing choices. The all-county same-year elasticity is 2.04.
-The peer-set headline is 1.07.
+The peer-set same-year elasticity is 1.07.
 
 | Specification | Counties | Population coefficient (s.e.) | Long-run elasticity | 90% interval | Observations |
 |---|---|---:|---:|---|---:|
@@ -102,20 +136,21 @@ Annual log change in each city's real Zillow Home Value Index on the Nevada Coun
 
 ## Population scenarios, 2026-2035
 
-Each scenario holds Nevada County population growth at a constant rate. Every other driver stays
+Each scenario holds Nevada County population growth at a constant rate. Each year's growth is
+combined with the local-projection response at every later horizon. Every other driver stays
 where it was in 2025, so the 2035 value is the 2025 value plus the population effect only.
-It is not a forecast of the market. Ranges come from 10,000 draws of the coefficients.
-The last column uses the lagged-population model, the same association under the lagged timing assumption.
+It is not a forecast of the market. Ranges come from 1,000 county bootstrap resamples of the peer-county local projections.
+The last column uses the local projections fit on all counties.
 
-| Scenario | 10-yr population change | City | 2035 value | Effect vs. flat population | 90% range | Lagged-model effect |
+| Scenario | 10-yr population change | City | 2035 value | Effect vs. flat population | 90% range | All-counties effect |
 |---|---:|---|---:|---:|---|---:|
-| Decline (-0.5%/yr) | -4.9% | Grass Valley | $483,540 | -5.0% ($-25,458) | $-40,284 to $-10,390 | -2.2% ($-11,332) |
-| Decline (-0.5%/yr) | -4.9% | Nevada City | $529,993 | -5.0% ($-27,852) | $-43,876 to $-11,451 | -2.2% ($-12,416) |
-| 2000-2025 trend (+0.39%/yr) | +3.9% | Grass Valley | $529,550 | +4.0% ($+20,552) | $+8,163 to $+33,429 | +1.8% ($+8,918) |
-| 2000-2025 trend (+0.39%/yr) | +3.9% | Nevada City | $580,329 | +4.0% ($+22,483) | $+8,998 to $+36,392 | +1.8% ($+9,771) |
-| Growth (+1.0%/yr) | +10.5% | Grass Valley | $563,574 | +10.7% ($+54,576) | $+21,271 to $+90,516 | +4.6% ($+23,264) |
-| Growth (+1.0%/yr) | +10.5% | Nevada City | $617,546 | +10.7% ($+59,701) | $+23,447 to $+98,506 | +4.6% ($+25,490) |
-| Fast growth (+2.0%/yr) | +21.9% | Grass Valley | $623,375 | +22.5% ($+114,377) | $+43,207 to $+195,990 | +9.3% ($+47,347) |
-| Fast growth (+2.0%/yr) | +21.9% | Nevada City | $682,951 | +22.4% ($+125,106) | $+47,635 to $+213,170 | +9.3% ($+51,876) |
+| Decline (-0.5%/yr) | -4.9% | Grass Valley | $464,182 | -8.8% ($-44,816) | $-95,730 to $+138 | -17.9% ($-90,930) |
+| Decline (-0.5%/yr) | -4.9% | Nevada City | $508,850 | -8.8% ($-48,995) | $-104,535 to $+151 | -17.9% ($-99,594) |
+| 2000-2025 trend (+0.39%/yr) | +3.9% | Grass Valley | $546,507 | +7.4% ($+37,509) | $-107 to $+88,755 | +16.4% ($+83,453) |
+| 2000-2025 trend (+0.39%/yr) | +3.9% | Nevada City | $598,844 | +7.3% ($+40,999) | $-116 to $+96,846 | +16.4% ($+91,394) |
+| Growth (+1.0%/yr) | +10.5% | Grass Valley | $611,188 | +20.1% ($+102,190) | $-274 to $+260,728 | +47.8% ($+243,282) |
+| Growth (+1.0%/yr) | +10.5% | Nevada City | $669,524 | +20.0% ($+111,679) | $-299 to $+284,337 | +47.8% ($+266,409) |
+| Fast growth (+2.0%/yr) | +21.9% | Grass Valley | $732,572 | +43.9% ($+223,574) | $-546 to $+650,277 | +117.6% ($+598,572) |
+| Fast growth (+2.0%/yr) | +21.9% | Nevada City | $802,117 | +43.8% ($+244,272) | $-594 to $+708,452 | +117.5% ($+655,370) |
 
 Charts: `history.png`, `scenarios.png`.

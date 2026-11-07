@@ -56,8 +56,8 @@
           <div class="segmented" id="presets"></div>
         </div>
         <div class="control">
-          <span class="control-label">Estimate</span>
-          <div class="segmented" id="model-choice" role="radiogroup" aria-label="Estimate"></div>
+          <span class="control-label">Counties in the estimate</span>
+          <div class="segmented" id="model-choice" role="radiogroup" aria-label="Counties in the estimate"></div>
         </div>
       </div>
       <div class="readouts" id="readouts" aria-live="polite"></div>
@@ -85,8 +85,8 @@
     <section aria-labelledby="impulse-title">
       <h2 id="impulse-title">Prices keep rising for a few years after people arrive</h2>
       <p class="section-lede">
-        Home prices have momentum. A price rise this year tends to bring more rise next year. So a one-time 1% increase in population
-        lifts prices a little at first, then more over the next three to four years, until the effect levels off.
+        Prices keep moving for a few years after people arrive. The direct estimate measures the price change h years after a one-year population change, horizon by horizon.
+        The momentum model extends a one-year relation. They agree at short horizons; where they part, trust the direct estimate.
       </p>
       <div class="card"><div id="impulse-chart" class="chart"></div></div>
       <details class="table-view"><summary>Show response table</summary><div id="impulse-table"></div></details>
@@ -107,8 +107,8 @@
         </li>
         <li>
           <strong>Scenarios.</strong>
-          A constant yearly population growth rate runs through the fitted model for <span data-bind="horizon"></span> years.
-          The shaded range shows 90% of 10,000 simulations that vary the estimated coefficients.
+          Each year of a constant population growth rate is combined with the direct estimate of the price change at every later horizon, for <span data-bind="horizon"></span> years.
+          The shaded range shows 90% of 1,000 resamples of the counties.
         </li>
       </ol>
 
@@ -121,7 +121,7 @@
 
       <h3>How much the number moves with the choice of sample</h3>
       <p>
-        Each row refits the model under one choice and shows the long-run price change for 1% more people with its 90% range. The filled dot is the headline. Large counties and the 2000s boom give much bigger numbers than the peer counties.
+        Each row refits the model under one choice and shows the price change for 1% more people (long-run, momentum model) with its 90% range. The filled dot is the peer-county same-year fit. Large counties and the 2000s boom give much bigger numbers than the peer counties.
       </p>
       <div class="card"><div id="spec-chart" class="chart"></div></div>
 
