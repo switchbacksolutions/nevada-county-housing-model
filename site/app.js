@@ -242,7 +242,7 @@ function readHash(presets) {
   if (["peer", "all"].includes(q.get("m"))) state.model = q.get("m");
   const key = q.get("p");
   if (key === "dof") state.path = "dof";
-  else if (presets[key]) state.growth = presets[key].growth;
+  else if (Object.hasOwn(presets, key)) state.growth = presets[key].growth;
   if (state.path !== "dof" && /^-?\d+(\.\d+)?$/.test(q.get("g") ?? "")) {
     const g = Math.round(+q.get("g") * 10) / 10;
     if (g >= +slider.min && g <= +slider.max) state.growth = g;
