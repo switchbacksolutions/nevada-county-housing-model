@@ -426,6 +426,7 @@ function setupControls() {
       state.dollars = key;
       sync();
       renderHistory();
+  renderExplained();
     });
   }
   const pathBtn = h("button", { type: "button", "aria-pressed": "false" }, presetEl, "State projection");
@@ -550,6 +551,81 @@ function renderHistory() {
       usd(r["Grass Valley_nominal"]), usd(r["Nevada City_nominal"]),
     ]),
     [1, 2, 3, 4, 5],
+  );
+}
+
+const EXPLAINED_BARS = [
+  { key: "actual_pct", name: "Actual change since 2001", color: "--text-secondary", opacity: 1 },
+  { key: "population_pct", name: "Part that goes with population growth", color: "--series-1", opacity: 1 },
+  { key: "other_pct", name: "Everything else", color: "--series-3", opacity: 0.5 },
+];
+
+/** Three bars per city on one shared percent axis, drawn as small multiples. rows: {city: explained entry}. */
+function waterfallChart(container, rows) {
+  container.replaceChildren();
+  const cities = Object.keys(rows);
+  legend(container, EXPLAINED_BARS.map((b) => ({ name: b.name, color: css(b.color) })));
+  const all = cities.flatMap((c) => [0, rows[c].actual_pct, rows[c].population_lo, rows[c].population_hi, rows[c].other_pct]);
+  const yt = niceTicks(Math.min(...all), Math.max(...all), 5);
+  const grid = h("div", { class: "multiples" }, container);
+  for (const city of cities) {
+    const box = h("div", {}, grid);
+    h("p", { class: "chart-title" }, box, city);
+    const e = rows[city];
+    const width = Math.max(box.clientWidth, 300);
+    const m = { top: 16, right: 8, bottom: 20, left: 48 };
+    const height = 300;
+    const y = linear([yt.lo, yt.hi], [height - m.bottom, m.top]);
+    const svg = s("svg", { viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": `${city}: actual change since ${e.start_year} ${pct(e.actual_pct, 0)}, part that goes with population growth ${pct(e.population_pct, 0)}, everything else ${pct(e.other_pct, 0)}` }, box);
+    const ax = s("g", { class: "axis" }, svg);
+    for (const v of yt.ticks) {
+      s("line", { class: "gridline", x1: m.left, x2: width - m.right, y1: y(v), y2: y(v) }, ax);
+      s("text", { x: m.left - 6, y: y(v), "text-anchor": "end", "dominant-baseline": "middle" }, ax, v.toFixed(0) + "%");
+    }
+    const slot = (width - m.left - m.right) / EXPLAINED_BARS.length;
+    const bw = Math.min(slot * 0.6, 70);
+    EXPLAINED_BARS.forEach((b, i) => {
+      const v = e[b.key];
+      const cx = m.left + slot * (i + 0.5);
+      const g = s("g", {}, svg);
+      s("rect", { x: cx - bw / 2, y: Math.min(y(0), y(v)), width: bw, height: Math.abs(y(v) - y(0)), fill: css(b.color), "fill-opacity": b.opacity }, g);
+      if (b.key === "population_pct") {
+        const w = { stroke: css("--text-primary"), "stroke-width": 1.5 };
+        s("line", { x1: cx, x2: cx, y1: y(e.population_lo), y2: y(e.population_hi), ...w }, g);
+        for (const end of [e.population_lo, e.population_hi]) s("line", { x1: cx - 5, x2: cx + 5, y1: y(end), y2: y(end), ...w }, g);
+      }
+      const top = b.key === "population_pct" ? Math.min(y(e.population_hi), y(v)) : y(Math.max(v, 0));
+      s("text", { class: "direct-label", x: cx, y: (v >= 0 ? top : y(v)) - 5, "text-anchor": "middle" }, g, pct(v, 0));
+      s("rect", { x: cx - slot / 2, y: m.top, width: slot, height: height - m.top - m.bottom, fill: "transparent" }, g);
+      g.addEventListener("pointermove", (evt) => showTip(evt, `${city}: ${b.name}`, [
+        [css(b.color), `${e.start_year} to ${e.end_year}`, pct(v, 1)],
+        ...(b.key === "population_pct" ? [[css(b.color), "90% range", `${signed(e.population_lo)} to ${signed(e.population_hi)}`]] : []),
+      ]));
+      g.addEventListener("pointerleave", hideTip);
+    });
+    s("line", { x1: m.left, x2: width - m.right, y1: y(0), y2: y(0), stroke: css("--text-muted"), "stroke-width": 1 }, svg);
+  }
+}
+
+function renderExplained() {
+  const ex = DATA.explained;
+  const cities = Object.keys(ex);
+  const hist = DATA.history;
+  const grew = 100 * (hist.at(-1).population / hist[0].population - 1);
+  const first = ex[cities[0]];
+  const parts = cities.map((c) => `${pct(ex[c].population_pct, 0)} in ${c} (${Math.round((100 * ex[c].population_pct) / ex[c].actual_pct)}% of its ${pct(ex[c].actual_pct, 0)} change)`);
+  document.getElementById("explained-lede").textContent =
+    `The county grew about ${grew.toFixed(0)}% from ${first.start_year} to ${first.end_year}. Applying the model to that growth gives a price change that goes with it of ${parts.join(" and ")}. ` +
+    "This is the model's own arithmetic, not a finding about what happened. Responses beyond year 10 hold the year-10 value. The rest is other forces the model holds fixed, such as rates, incomes, the pandemic and insurance.";
+  waterfallChart(document.getElementById("explained-chart"), ex);
+  table(
+    document.getElementById("explained-table"),
+    ["City", "Measure", `Change ${first.start_year} to ${first.end_year}`, "90% range"],
+    cities.flatMap((c) => EXPLAINED_BARS.map((b) => [
+      c, b.name, pct(ex[c][b.key], 1),
+      b.key === "population_pct" ? `${signed(ex[c].population_lo)} to ${signed(ex[c].population_hi)}` : "",
+    ])),
+    [2, 3],
   );
 }
 

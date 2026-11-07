@@ -186,6 +186,22 @@ def site_events() -> list[dict]:
     return sorted(MARKET_EVENTS + rows, key=lambda e: (e["year"], e["date"]))
 
 
+def explained_export(p, z, imp, cd) -> dict[str, dict[str, float]]:
+    """The model's arithmetic applied to Nevada County's observed 2002..BASE_YEAR growth.
+
+    Years past the estimated horizon hold the year-HORIZON response (see path_effect).
+    """
+    dlpop = p[p["fips"] == NEVADA].set_index("year")["dlpop"].loc[2002:BASE_YEAR]
+    final = {c: e[:, -1] for c, e in population_effect(imp, cd, np.expm1(dlpop.values)).items()}
+    out = {}
+    for city, draws in final.items():
+        pop_lo, pop, pop_hi = (100 * np.expm1(np.percentile(draws, q)) for q in (5, 50, 95))
+        actual = 100 * (z.loc[BASE_YEAR, city] / z.loc[2001, city] - 1)
+        out[city] = {"start_year": 2001, "end_year": BASE_YEAR, "actual_pct": round(actual, 2), "population_pct": round(pop, 2),
+                     "population_lo": round(pop_lo, 2), "population_hi": round(pop_hi, 2), "other_pct": round(round(actual, 2) - round(pop, 2), 2)}
+    return out
+
+
 def export_site(p, z, z_nominal, county, county_lag, all_fits, cities, curve, comps, imps, cd, dof, validation):
     """Write site/data.json: history, county comparison, model summary, and a scenario grid for the explorer."""
     names = pd.read_csv(DATA / "ca_county_names.csv", dtype={"fips": str}).set_index("fips")["name"]
@@ -273,6 +289,7 @@ def export_site(p, z, z_nominal, county, county_lag, all_fits, cities, curve, co
                   "last_year": int(county.sample["year"].max()), "n": int(county.nobs)},
         "impulse": {"lp": impulse_lp(imps["peer"]), "ar1": impulse_ar1(county, "dlpop")},
         "history": history,
+        "explained": explained_export(p, z, imps["peer"], cd),
         "counties": {"start": start, "end": end, "rows": counties},
         "spec_curve": spec_rows,
         "components": {

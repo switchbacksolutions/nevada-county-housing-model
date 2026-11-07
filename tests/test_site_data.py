@@ -73,3 +73,12 @@ def test_validation_exported_and_stated_without_causal_claim():
     sentence = "This tests whether population growth helps rank counties' price growth ahead of time. It is not evidence of causation."
     assert sentence in (ROOT / "output/results.md").read_text()
     assert sentence in (ROOT / "site/index.html").read_text()
+
+
+def test_explained_is_small_share():
+    data = _data()
+    for city in ("Grass Valley", "Nevada City"):
+        e = data["explained"][city]
+        assert abs(e["population_pct"]) < abs(e["actual_pct"])
+        assert e["population_lo"] <= e["population_pct"] <= e["population_hi"]
+        assert abs(e["other_pct"] - (e["actual_pct"] - e["population_pct"])) < 0.01
