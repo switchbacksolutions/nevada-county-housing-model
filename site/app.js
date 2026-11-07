@@ -13,7 +13,8 @@ const signed = (v, digits = 1) => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(
 const signedUsd = (v) => (v >= 0 ? "+" : "−") + usd(Math.abs(v));
 const pct = (v, digits = 1) => signed(v, digits) + "%";
 
-const state = { growth: 0, model: "peer", path: null };
+const state = { growth: 0, model: "peer", path: null, value: 0 };
+const VALUE_RANGE = [50_000, 20_000_000];
 let DATA;
 
 function h(tag, attrs = {}, parent, text) {
@@ -214,6 +215,41 @@ function pathAverage(path) {
   return 100 * Math.expm1(path.growth.reduce((a, g) => a + Math.log1p(g), 0) / path.growth.length);
 }
 
+// Residents and households are rounded to the nearest 10: the inputs are not precise to the unit.
+function renderPeople(path) {
+  const rate = path ? 100 * path.growth[0] : state.growth;
+  const subject = path ? `The state projection's first year, ${pct(rate)}/yr,` : `${pct(rate)}/yr`;
+  const round10 = (v) => Math.round(v / 10) * 10;
+  const n = (v) => v.toLocaleString("en-US");
+  const residents = round10(Math.abs((DATA.population_latest.count * rate) / 100));
+  const permits = `The county permitted ${n(DATA.permits_latest.count)} homes in ${DATA.permits_latest.year}.`;
+  const move = residents === 0
+    ? "holds the population flat."
+    : `is about ${n(residents)} ${rate < 0 ? "fewer" : "more"} residents a year, about ${n(round10(residents / DATA.persons_per_household))} households.`;
+  document.getElementById("people-line").textContent = `${subject} ${move} ${permits}`;
+}
+
+function parseValue(text) {
+  const digits = text.replace(/[^0-9]/g, "");
+  const v = digits ? +digits : NaN;
+  return v >= VALUE_RANGE[0] && v <= VALUE_RANGE[1] ? v : null;
+}
+
+// Hash keys: g growth %, m model, v home value, p preset key. Invalid values are ignored.
+function readHash(presets) {
+  const q = new URLSearchParams(location.hash.slice(1));
+  const slider = document.getElementById("growth");
+  if (["peer", "all"].includes(q.get("m"))) state.model = q.get("m");
+  const key = q.get("p");
+  if (key === "dof") state.path = "dof";
+  else if (presets[key]) state.growth = presets[key].growth;
+  if (state.path !== "dof" && /^-?\d+(\.\d+)?$/.test(q.get("g") ?? "")) {
+    const g = Math.round(+q.get("g") * 10) / 10;
+    if (g >= +slider.min && g <= +slider.max) state.growth = g;
+  }
+  if (/^\d+$/.test(q.get("v") ?? "")) state.value = parseValue(q.get("v")) ?? state.value;
+}
+
 function renderExplorer() {
   const path = activePath();
   const rows = path ? path[state.model] : scenarioRows(state.growth, state.model);
@@ -227,6 +263,8 @@ function renderExplorer() {
   document.getElementById("support-note").textContent = outside
     ? "Few California counties sustained this rate for a decade. Treat this as a stretch, not a scenario."
     : "";
+
+  renderPeople(path);
 
   const popChange = path
     ? 100 * (path.growth.reduce((a, g) => a * (1 + g), 1) - 1)
@@ -243,6 +281,8 @@ function renderExplorer() {
     // Simulated values are rounded to $100, so the difference is too.
     h("p", { class: "delta" }, card, `${signedUsd(Math.round((med - base) / 100) * 100)} (${pct(100 * (med / base - 1))}) from population alone`);
     h("p", { class: "range" }, card, `90% range ${usd(r.p5.at(-1))} to ${usd(r.p95.at(-1))} · county population ${pct(popChange)} over ${DATA.horizon} years`);
+    const own = (v) => usd((state.value * v) / base);
+    h("p", { class: "home" }, card, `A ${usd(state.value)} home: ${own(med)} (range ${own(r.p5.at(-1))} to ${own(r.p95.at(-1))})`);
   }
 
   const charts = document.getElementById("explorer-charts");
@@ -306,6 +346,9 @@ function setupControls() {
   shade(edge(DATA.support.hi), 100);
 
   const presetEl = document.getElementById("presets");
+  const valueEl = document.getElementById("home-value");
+  const baseValue = DATA.base_values["Grass Valley"];
+  const defaultGrowth = DATA.presets.find((p) => p.key === "recent").growth;
   // The grid step is 0.1, so a preset is "pressed" when it snaps to the same grid point as the slider.
   const snap = (g) => Math.round(g * 10);
   const buttons = DATA.presets.map((p) => {
@@ -318,14 +361,39 @@ function setupControls() {
     });
     return [b, p];
   });
+  const modelEl = document.getElementById("model-choice");
+  for (const [label, key] of [["Peer counties", "peer"], ["All counties", "all"]]) {
+    const b = h("button", { type: "button", role: "radio", "data-m": key }, modelEl, label);
+    b.addEventListener("click", () => {
+      state.model = key;
+      sync();
+    });
+  }
   const pathBtn = h("button", { type: "button", "aria-pressed": "false" }, presetEl, "State projection");
   pathBtn.addEventListener("click", () => {
     state.path = "dof";
     sync();
   });
 
+  function writeHash() {
+    const q = new URLSearchParams();
+    if (state.model !== "peer") q.set("m", state.model);
+    if (state.path) q.set("p", state.path);
+    else if (snap(state.growth) !== snap(defaultGrowth)) {
+      q.set("g", String(Math.round(state.growth * 10) / 10));
+      const hit = DATA.presets.find((p) => snap(p.growth) === snap(state.growth));
+      if (hit) q.set("p", hit.key);
+    }
+    if (state.value !== baseValue) q.set("v", String(state.value));
+    const hash = q.toString();
+    history.replaceState(null, "", location.pathname + location.search + (hash ? "#" + hash : ""));
+  }
+
   function sync() {
     for (const [b, p] of buttons) b.setAttribute("aria-pressed", String(!state.path && snap(p.growth) === snap(state.growth)));
+    for (const c of modelEl.children) c.setAttribute("aria-checked", String(c.dataset.m === state.model));
+    slider.value = state.growth;
+    writeHash();
     pathBtn.setAttribute("aria-pressed", String(!!state.path));
     slider.disabled = !!state.path;
     slider.setAttribute("aria-disabled", String(!!state.path));
@@ -337,19 +405,32 @@ function setupControls() {
     state.growth = +slider.value;
     sync();
   });
-  state.growth = DATA.presets.find((p) => p.key === "recent").growth;
-  slider.value = state.growth;
-  sync();
 
-  const modelEl = document.getElementById("model-choice");
-  for (const [label, key] of [["Peer counties", "peer"], ["All counties", "all"]]) {
-    const b = h("button", { type: "button", role: "radio", "aria-checked": String(state.model === key), "data-m": key }, modelEl, label);
-    b.addEventListener("click", () => {
-      state.model = key;
-      for (const c of modelEl.children) c.setAttribute("aria-checked", String(c.dataset.m === key));
-      renderExplorer();
-    });
-  }
+  valueEl.addEventListener("input", () => {
+    const v = parseValue(valueEl.value);
+    if (v === null) return;
+    state.value = v;
+    sync();
+  });
+  valueEl.addEventListener("blur", () => { valueEl.value = usd(state.value); });
+
+  const copyBtn = document.getElementById("copy-link");
+  copyBtn.addEventListener("click", async () => {
+    writeHash();
+    try {
+      await navigator.clipboard.writeText(location.href);
+      copyBtn.textContent = "Copied";
+    } catch {
+      copyBtn.textContent = "Copy failed";
+    }
+    setTimeout(() => { copyBtn.textContent = "Copy link to this scenario"; }, 2000);
+  });
+
+  state.growth = defaultGrowth;
+  state.value = baseValue;
+  readHash(Object.fromEntries(DATA.presets.map((p) => [p.key, p])));
+  valueEl.value = usd(state.value);
+  sync();
 }
 
 function renderHistory() {

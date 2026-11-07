@@ -1,3 +1,4 @@
+import json
 import re
 from pathlib import Path
 
@@ -50,3 +51,9 @@ def test_dof_path_is_exported():
         for city in ("Grass Valley", "Nevada City"):
             row = dof[model][city]
             assert len(row["median"]) == 11 and row["p5"][-1] <= row["median"][-1] <= row["p95"][-1]
+
+
+def test_translator_fields_present():
+    data = json.loads((ROOT / "site/data.json").read_text())
+    assert 2.0 < data["persons_per_household"] < 3.0
+    assert data["permits_latest"]["count"] > 0 and data["population_latest"]["count"] > 90_000

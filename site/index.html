@@ -49,13 +49,21 @@
         </label>
         <div class="control">
           <span class="control-label">Presets</span>
-          <div class="segmented" id="presets"></div>
+          <div class="preset-row">
+            <div class="segmented" id="presets"></div>
+            <button type="button" class="ghost" id="copy-link">Copy link to this scenario</button>
+          </div>
         </div>
         <div class="control">
           <span class="control-label">Counties in the estimate</span>
           <div class="segmented" id="model-choice" role="radiogroup" aria-label="Counties in the estimate"></div>
         </div>
+        <label class="control">
+          <span class="control-label">Your home's value today</span>
+          <input id="home-value" type="text" inputmode="numeric" autocomplete="off">
+        </label>
       </div>
+      <p class="people-line" id="people-line" aria-live="polite"></p>
       <div class="readouts" id="readouts" aria-live="polite"></div>
       <p class="support-note" id="support-note" aria-live="polite"></p>
       <div class="multiples" id="explorer-charts"></div>

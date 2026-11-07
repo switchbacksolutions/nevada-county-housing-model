@@ -162,3 +162,11 @@ th { color: var(--text-secondary); font-weight: 600; position: sticky; top: 0; b
 
 :focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; }
 @media (prefers-reduced-motion: no-preference) { .readout .big { transition: color 0.2s; } }
+
+.preset-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+#home-value {
+  font: inherit; width: 10em; padding: 6px 10px; color: var(--text-primary);
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+}
+.people-line { color: var(--text-secondary); max-width: 46em; margin: 0 0 16px; }
+.readout .home { font-size: 14px; margin: 6px 0 0; }

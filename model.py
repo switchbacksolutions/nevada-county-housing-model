@@ -208,10 +208,18 @@ def export_site(p, z, county, county_lag, all_fits, cities, curve, imps, cd, dof
     lp10 = dict(zip(("point", "lo", "hi"), np.round(np.percentile(imps["peer"][:, HORIZON - 1], [50, 5, 95]), 2).tolist()))
     spec_rows = curve.round({"lr": 2, "lr_lo": 2, "lr_hi": 2}).round(3).to_dict("records")
 
+    zips = pd.read_csv(DATA / "panel_zip_year.csv")
+    core = zips[(zips["geo_tier"] == "core") & (zips["year"] == 2024)]
+    permits = nev["permits"].dropna()
+
     data = {
         "base_year": BASE_YEAR,
         "horizon": HORIZON,
         "cities": CITIES,
+        # ACS 2020-2024 window; the people translator divides residents by this.
+        "persons_per_household": round(core["acs5_population"].sum() / core["acs5_households"].sum(), 2),
+        "permits_latest": {"year": int(permits.index[-1]), "count": int(permits.iloc[-1])},
+        "population_latest": {"year": BASE_YEAR, "count": round(nev.loc[BASE_YEAR, "population"])},
         "base_values": {city: round(z.loc[BASE_YEAR, city]) for city in CITIES},
         "support": support(p),
         "presets": [{"key": sc["key"], "label": sc["label"], "growth": round(100 * sc["growth"], 2)} for sc in scenarios(p)],
