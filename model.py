@@ -27,7 +27,7 @@ HORIZON = 10
 DRAWS = 10_000
 FIRST_TEST_YEAR = 2015
 N_BOOT = 1000  # county bootstrap resamples for the local projections
-UNIT_PATHS = 200  # draws exported for the browser's live scenarios
+UNIT_PATHS = 200  # draws exported for the browser's possible-futures lines
 
 # Labels for register rows shown on the history chart. Dates, not causes.
 SITE_EVENTS: dict[str, str] = {
@@ -213,7 +213,7 @@ def explained_export(p, z, imp, cd) -> dict[str, dict[str, float]]:
 
 
 def export_site(p, z, z_nominal, county, county_lag, all_fits, cities, curve, comps, imps, cd, dof, validation):
-    """Write site/data.json: history, county comparison, model summary, and a scenario grid for the explorer."""
+    """Write site/data.json: history, county comparison, model summary, and 1%/yr scenario draws for the explorer."""
     names = pd.read_csv(DATA / "ca_county_names.csv", dtype={"fips": str}).set_index("fips")["name"]
     nev = p[p["fips"] == NEVADA].set_index("year")
     real_hpi = (nev["hpi"] / nev["deflator"]).dropna()
@@ -243,18 +243,14 @@ def export_site(p, z, z_nominal, county, county_lag, all_fits, cities, curve, co
             "price_change": round(100 * (hpi[end] / hpi[start] - 1), 2),
         })
 
-    grid = []
-    for g in np.round(np.arange(-1.0, 2.01, 0.1), 1):
-        for model_name, imp in imps.items():
-            eff = population_effect(imp, cd, np.full(HORIZON, g / 100))
-            for city in CITIES:
-                grid.append({"growth": float(g), "model": model_name, "city": city, **value_band(z, city, eff[city])})
-
-    # Effects are linear in log1p(growth), so the browser rescales these 1%/yr draws to any constant rate.
-    unit_paths = {
-        model_name: {city: np.round(e[:UNIT_PATHS], 5).tolist() for city, e in population_effect(imp, cd, np.full(HORIZON, 0.01)).items()}
-        for model_name, imp in imps.items()
+    # Effects are linear in log1p(growth), so the browser rescales these 1%/yr log effects to any constant rate.
+    # Quantiles of all draws feed the readouts; the first UNIT_PATHS draws only feed the possible-futures lines.
+    unit = {model_name: population_effect(imp, cd, np.full(HORIZON, 0.01)) for model_name, imp in imps.items()}
+    unit_quantiles = {
+        model_name: {city: dict(zip(("p5", "p50", "p95"), np.round(np.percentile(e, [5, 50, 95], axis=0), 5).tolist())) for city, e in eff.items()}
+        for model_name, eff in unit.items()
     }
+    unit_paths = {model_name: {city: np.round(e[:UNIT_PATHS], 5).tolist() for city, e in eff.items()} for model_name, eff in unit.items()}
 
     path = dof_path(dof)
     dof_export = {
@@ -316,7 +312,7 @@ def export_site(p, z, z_nominal, county, county_lag, all_fits, cities, curve, co
         },
         "validation": {k: [{**r, "corr": None if np.isnan(r["corr"]) else round(r["corr"], 3), "rmse": round(r["rmse"], 4)} for r in v.to_dict("records")] for k, v in validation.items()},
         "validation_first_origin": FIRST_TEST_YEAR - 1,
-        "scenario_grid": grid,
+        "unit_quantiles": unit_quantiles,
         "unit_paths": unit_paths,
     }
     SITE.mkdir(exist_ok=True)

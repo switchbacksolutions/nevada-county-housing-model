@@ -43,8 +43,7 @@ def test_support_and_presets_are_exported():
     sup = data["support"]
     assert sup["lo"] < 0 < sup["hi"] < 2
     assert [p["key"] for p in data["presets"]] == ["decline", "flat", "recent", "longrun", "growth"]
-    grid_growth = {r["growth"] for r in data["scenario_grid"]}
-    assert max(grid_growth) == 2.0 and min(grid_growth) == -1.0
+    assert "scenario_grid" not in data and set(data["unit_quantiles"]) == {"peer", "all"}
     assert all(p["growth"] <= 2 for p in data["presets"])
 
 
@@ -91,17 +90,23 @@ def test_explained_population_part_within_actual():
         assert abs(e["other_pct"] - rest) < 0.01
 
 
-def test_grid_equals_scaled_unit_paths():
-    data = json.loads((ROOT / "site/data.json").read_text())
+def test_unit_quantiles_match_path_effect():
     import numpy as np
-    for row in data["scenario_grid"]:
-        if row["growth"] in (-0.5, 0.0, 1.0):
-            paths = np.array(data["unit_paths"][row["model"]][row["city"]])
-            scale = np.log1p(row["growth"] / 100) / np.log1p(0.01)
-            v = data["base_values"][row["city"]] * np.exp(paths * scale)
-            med = np.median(v, axis=0)
-            assert np.allclose(med, row["median"][1:], rtol=0.03)   # 200 vs 1000 draws
-            assert (np.percentile(v, 5, axis=0) <= np.percentile(v, 95, axis=0)).all()
+
+    data = _data()
+    for model in ("peer", "all"):
+        for city in data["cities"]:
+            q = {k: np.array(v) for k, v in data["unit_quantiles"][model][city].items()}
+            assert all(v.shape == (data["horizon"],) for v in q.values())
+            assert (q["p5"] <= q["p50"]).all() and (q["p50"] <= q["p95"]).all()
+    # The site's +1%/yr readout and the results.md Growth row come from the same 1,000 draws.
+    text = (ROOT / "output/results.md").read_text()
+    row = re.search(r"^\| Growth \(\+1\.00%/yr\) \| [^|]+ \| Grass Valley \| \$([\d,]+) \|", text, re.M)
+    city = "Grass Valley"
+    site = data["base_values"][city] * np.exp(data["unit_quantiles"]["peer"][city]["p50"][-1])
+    assert abs(float(row.group(1).replace(",", "")) - site) < 200
+    dof = data["scenario_paths"]["dof"]
+    assert all(len(dof[m][c][k]) == data["horizon"] + 1 for m in ("peer", "all") for c in data["cities"] for k in ("p5", "median", "p95"))
 
 
 def test_unit_paths_shape():
@@ -112,7 +117,7 @@ def test_unit_paths_shape():
         for city in data["cities"]:
             rows = data["unit_paths"][model][city]
             assert len(rows) == 200 and all(len(r) == data["horizon"] for r in rows)
-            assert all(math.isfinite(r[0]) for r in data["unit_paths"]["peer"][city])
+            assert all(math.isfinite(v) for r in rows for v in r)
 
 
 def test_dof_growth_path_alignment():

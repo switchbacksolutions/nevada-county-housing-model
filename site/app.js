@@ -263,24 +263,22 @@ function renderTiles() {
 }
 
 // The effect is linear in log1p(growth), so the exported 1%/yr draws rescale exactly to any constant rate.
+// These draws feed only the possible-futures lines and count.
 function unitValues(growth, model, city, n) {
   const scale = Math.log1p(growth / 100) / Math.log1p(0.01);
   const base = DATA.base_values[city];
   return DATA.unit_paths[model][city].slice(0, n).map((path) => [base, ...path.map((e) => base * Math.exp(e * scale))]);
 }
 
-// Same shape as a scenario_grid row, rounded to $100 like the exported bands.
+// Quantiles of all 1,000 draws, rounded to $100 like the exported bands. A negative scale swaps the tails.
 function unitRows(growth, model) {
+  const scale = Math.log1p(growth / 100) / Math.log1p(0.01);
+  const [lo, hi] = scale >= 0 ? ["p5", "p95"] : ["p95", "p5"];
   return Object.fromEntries(DATA.cities.map((city) => {
-    const paths = unitValues(growth, model, city);
-    const n = paths.length;
-    const cols = paths[0].map((_, t) => paths.map((p) => p[t]).sort((a, b) => a - b));
-    const pick = (at) => cols.map((c) => Math.round(at(c) / 100) * 100);
-    return [city, {
-      p5: pick((c) => c[Math.floor(0.05 * n)]),
-      median: pick((c) => (c[Math.floor((n - 1) / 2)] + c[Math.ceil((n - 1) / 2)]) / 2),
-      p95: pick((c) => c[Math.ceil(0.95 * n) - 1]),
-    }];
+    const q = DATA.unit_quantiles[model][city];
+    const base = DATA.base_values[city];
+    const row = (k) => [base, ...q[k].map((e) => base * Math.exp(e * scale))].map((v) => Math.round(v / 100) * 100);
+    return [city, { p5: row(lo), median: row("p50"), p95: row(hi) }];
   }));
 }
 
