@@ -324,6 +324,9 @@ def main():
             cells.append(f"{med:.2f} | {lo:.2f} to {hi:.2f}")
         lp_rows.append(f"| {j} | {' | '.join(cells)} |")
     lp10_med, lp10_lo, lp10_hi = np.percentile(imps["peer"][:, HORIZON - 1], [50, 5, 95])
+    # A sustained path raises log population by HORIZON * g and log price by g * sum(impulse), so this is its implied elasticity.
+    sustained = {k: np.median(imp.sum(axis=1)) / HORIZON for k, imp in imps.items()}
+    ld10 = {k: long_difference(p, "dlpop", HORIZON, sel)["b"] for k, sel in (("peer", peers), ("all", None))}
 
     ld_rows = ["| Window (years) | Peer counties (s.e.) | Windows | All counties (s.e.) | Windows |", "|---:|---:|---:|---:|---:|"]
     for h in (1, 5, 10):
@@ -381,8 +384,9 @@ Long-run elasticity with lagged population: {lr2:.2f} (90% interval {lr2_lo:.2f}
 ## Local projections
 
 Each row is a separate fit: the log real price change from the year before to h years after, on this
-year's population growth, with the same controls and county and year fixed effects. The value is the
-cumulative price change in percent for a one-year 1% population change. Intervals come from {N_BOOT:,}
+year's population growth, with the same controls and county and year fixed effects. Each horizon also
+holds population growth in the next h years fixed, so the value is the cumulative price change in percent
+for a one-year 1% population change with later growth unchanged. Intervals come from {N_BOOT:,}
 county block bootstrap resamples; every horizon is refit on the same resample.
 
 {lp_table}
@@ -396,6 +400,10 @@ effects and standard errors clustered by county.
 The {HORIZON}-year long-difference coefficient is the direct estimate of the horizon the scenarios show.
 
 {ld_table}
+
+Applied to a sustained {HORIZON}-year path, the sum of the h = 0 to {HORIZON - 1} responses implies {sustained["peer"]:.2f}
+for peer counties and {sustained["all"]:.2f} for all counties, against {HORIZON}-year long-difference coefficients of
+{ld10["peer"]:.2f} and {ld10["all"]:.2f}.
 
 ## Specification curve
 

@@ -75,7 +75,7 @@ def test_bootstrap_slopes_match_dummy_fit():
     p["lrp"] = p.groupby("fips")["dlp"].cumsum()
     res = cm.fit_local_projection(p, "dlpop", 2)
     d = res.sample
-    cols = ["dlpop", *cm.LP_CONTROLS]
+    cols = ["dlpop", "lead_1", "lead_2", *cm.LP_CONTROLS]
     years = pd.get_dummies(d["year"].astype(str), drop_first=True, dtype=float).to_numpy()
     sizes = d.groupby("fips", sort=False).size().to_numpy()
     slopes = cm._fe_slopes(d["y"].to_numpy(), np.column_stack([d[cols].to_numpy(), years]), sizes)

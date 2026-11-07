@@ -88,18 +88,22 @@ def spec_curve(p: pd.DataFrame, n: int) -> pd.DataFrame:
 
 
 def _lp_frame(p: pd.DataFrame, pop_col: str, h: int, counties: list[str] | None = None) -> tuple[pd.DataFrame, list[str]]:
-    """Rows with the cumulative log real price change from t-1 to t+h. Assumes one row per county-year."""
+    """Rows with the cumulative log real price change from t-1 to t+h. Assumes one row per county-year.
+
+    Growth in the next h years enters as controls, so the pop_col slope is exact for convolving a specified path.
+    """
     if counties is not None:
         p = p[p["fips"].isin(counties)]
     p = p.sort_values(["fips", "year"])
-    g = p.groupby("fips")["lrp"]
-    x_cols = [pop_col, *LP_CONTROLS]
-    d = p.assign(y=g.shift(-h) - g.shift(1))
+    g = p.groupby("fips")
+    leads = {f"lead_{k}": g[pop_col].shift(-k) for k in range(1, h + 1)}
+    x_cols = [pop_col, *leads, *LP_CONTROLS]
+    d = p.assign(y=g["lrp"].shift(-h) - g["lrp"].shift(1), **leads)
     return d.dropna(subset=["y", *x_cols]), x_cols
 
 
 def fit_local_projection(p: pd.DataFrame, pop_col: str, h: int, counties: list[str] | None = None):
-    """Price change h years after a one-year population change, county and year effects, clustered by county."""
+    """Price change h years after a one-year population change, later growth held fixed, county and year effects, clustered by county."""
     d, x_cols = _lp_frame(p, pop_col, h, counties)
     fe = pd.get_dummies(d[["fips", "year"]].astype(str), drop_first=True, dtype=float)
     X = sm.add_constant(pd.concat([d[x_cols], fe], axis=1))
@@ -126,12 +130,11 @@ def lp_draws(p: pd.DataFrame, pop_col: str, counties: list[str] | None = None, h
 
     Every horizon is refit on the same resample, so each row is one jointly consistent impulse response.
     """
-    frames = [_lp_frame(p, pop_col, h, counties)[0] for h in horizons]
-    x_cols = [pop_col, *LP_CONTROLS]
-    fips = sorted(set().union(*(d["fips"] for d in frames)))
-    years = sorted(set().union(*(d["year"] for d in frames)))
+    frames = [_lp_frame(p, pop_col, h, counties) for h in horizons]
+    fips = sorted(set().union(*(d["fips"] for d, _ in frames)))
+    years = sorted(set().union(*(d["year"] for d, _ in frames)))
     blocks = []
-    for d in frames:
+    for d, x_cols in frames:
         yd = (d["year"].to_numpy()[:, None] == np.array(years[1:])[None, :]).astype(float)
         X = np.column_stack([d[x_cols].to_numpy(float), yd])
         by = {f: np.flatnonzero(d["fips"].to_numpy() == f) for f in fips}
