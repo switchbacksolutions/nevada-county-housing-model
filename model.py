@@ -27,6 +27,7 @@ HORIZON = 10
 DRAWS = 10_000
 FIRST_TEST_YEAR = 2015
 N_BOOT = 1000  # county bootstrap resamples for the local projections
+UNIT_PATHS = 200  # draws exported for the browser's live scenarios
 
 # Labels for register rows shown on the history chart. Dates, not causes.
 SITE_EVENTS: dict[str, str] = {
@@ -110,6 +111,13 @@ def scenarios(p: pd.DataFrame) -> list[dict]:
         {"key": "longrun", "label": f"Long-run 2000-{BASE_YEAR}", "growth": cagr(2000)},
         {"key": "growth", "label": "Growth", "growth": 0.01},
     ]
+
+
+def rate_text(g: float) -> str:
+    """Growth fraction as a signed %/yr label: one decimal unless the second one matters."""
+    v = round(100 * g, 2)
+    text = f"{v:+.1f}" if round(v, 1) == v else f"{v:+.2f}"
+    return text.replace("-", "−") + "%/yr"
 
 
 def support(p: pd.DataFrame) -> dict:
@@ -240,6 +248,12 @@ def export_site(p, z, z_nominal, county, county_lag, all_fits, cities, curve, co
             for city in CITIES:
                 grid.append({"growth": float(g), "model": model_name, "city": city, **value_band(z, city, eff[city])})
 
+    # Effects are linear in log1p(growth), so the browser rescales these 1%/yr draws to any constant rate.
+    unit_paths = {
+        model_name: {city: np.round(e[:UNIT_PATHS], 5).tolist() for city, e in population_effect(imp, cd, np.full(HORIZON, 0.01)).items()}
+        for model_name, imp in imps.items()
+    }
+
     path = dof_path(dof)
     dof_export = {
         "label": "State projection (DOF P-2A)",
@@ -300,6 +314,7 @@ def export_site(p, z, z_nominal, county, county_lag, all_fits, cities, curve, co
         "validation": {k: [{**r, "corr": None if np.isnan(r["corr"]) else round(r["corr"], 3), "rmse": round(r["rmse"], 4)} for r in v.to_dict("records")] for k, v in validation.items()},
         "validation_first_origin": FIRST_TEST_YEAR - 1,
         "scenario_grid": grid,
+        "unit_paths": unit_paths,
     }
     SITE.mkdir(exist_ok=True)
     (SITE / "data.json").write_text(json.dumps(data, separators=(",", ":"), default=float))
@@ -350,7 +365,7 @@ def plot_scenarios(z, effects):
             med = np.median(v, axis=0)
             if name.startswith("Growth"):
                 lo, hi = np.percentile(v, [5, 95], axis=0)
-                ax.fill_between(years, lo, hi, color=color, alpha=0.15, linewidth=0, label="+1.0%/yr 90% range")
+                ax.fill_between(years, lo, hi, color=color, alpha=0.15, linewidth=0, label=f"{name} 90% range")
             ax.plot(years, med, color=color, linewidth=2, label=name)
             ax.annotate(f"${med[-1]:,.0f}k", (years[-1], med[-1]), xytext=(6, 0), textcoords="offset points", va="center", fontsize=9, color=INK)
         style(ax)
@@ -410,7 +425,10 @@ def main():
     effects = {name: population_effect(imps["peer"], cd, g) for name, g in paths.items()}
     effects_all = {name: population_effect(imps["all"], cd, g) for name, g in paths.items()}
     plot_history(p, z)
-    plot_scenarios(z, {k: v for k, v in effects.items() if not k.startswith(("Flat", "State"))})
+    plot_scenarios(z, {
+        name if name.startswith("State") else f"{name} ({rate_text(paths[name][0])})": eff
+        for name, eff in effects.items() if name.startswith(("Decline", "Recent", "Growth", "State"))
+    })
     validation = {k: rolling_validation(p, "dlpop", sel, FIRST_TEST_YEAR) for k, sel in (("peer", peers), ("all", None))}
     export_site(p, z, z_nominal, county, county_lag, all_fits, cities, curve, {"peer": comp_peer, "all": comp_all}, imps, cd, dof, validation)
 

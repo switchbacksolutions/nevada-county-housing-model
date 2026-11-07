@@ -13,7 +13,8 @@ const signed = (v, digits = 1) => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(
 const signedUsd = (v) => (v >= 0 ? "+" : "−") + usd(Math.abs(v));
 const pct = (v, digits = 1) => signed(v, digits) + "%";
 
-const state = { growth: 0, model: "peer", path: null, value: 0, dollars: "real" };
+const state = { growth: 0, model: "peer", path: null, value: 0, dollars: "real", futures: false };
+const FUTURES = 40;
 const VALUE_RANGE = [50_000, 20_000_000];
 let DATA;
 
@@ -90,6 +91,7 @@ function legend(parent, items) {
  * Line chart with optional bands, a reference line, end labels and a crosshair tooltip.
  * series: [{name, color, points: [{x, y}], band?: [{x, lo, hi}], endLabel?}]
  * markers: [{x, label, kind, rows}] dated events, drawn as dashed verticals with a tooltip of rows.
+ * spaghetti: [[y, ...]] faint 1px lines in the first series color, one y per series[0] x.
  */
 const MARKER_KINDS = {
   market: { name: "Market turn", color: "--text-muted" },
@@ -115,7 +117,7 @@ function layoutMarkerLabels(markers, x) {
   });
 }
 function lineChart(container, opts) {
-  const { series, yFormat, xFormat = String, tooltip, ref, height: baseHeight = 320, yDomain, xTicks, legendItems, markers = [] } = opts;
+  const { series, yFormat, xFormat = String, tooltip, ref, height: baseHeight = 320, yDomain, xTicks, legendItems, markers = [], spaghetti = [] } = opts;
   container.replaceChildren();
   if (opts.title) h("p", { class: "chart-title" }, container, opts.title);
   if (opts.subtitle) h("p", { class: "chart-sub" }, container, opts.subtitle);
@@ -129,6 +131,7 @@ function lineChart(container, opts) {
   const m = { top: 12, right: opts.rightMargin ?? 64, bottom: 28, left: opts.leftMargin ?? 56 };
   const xs = series[0].points.map((p) => p.x);
   const allY = series.flatMap((se) => [...se.points.map((p) => p.y), ...(se.band || []).flatMap((b) => [b.lo, b.hi])]);
+  allY.push(...spaghetti.flat());
   if (ref) allY.push(ref.y);
   const yt = niceTicks(...(yDomain || [Math.min(...allY), Math.max(...allY)]), 5);
   const x = linear([Math.min(...xs), Math.max(...xs)], [m.left, width - m.right]);
@@ -155,6 +158,13 @@ function lineChart(container, opts) {
     s("text", { class: "ref-label", x: width - m.right - 4, y: y(ref.y) + (ref.labelAbove ? -6 : 14), "text-anchor": "end" }, svg, ref.label);
   }
 
+  if (spaghetti.length) {
+    const g = s("g", { class: "spaghetti" }, svg);
+    for (const ys of spaghetti) {
+      const d = ys.map((v, i) => `${i ? "L" : "M"}${x(xs[i])},${y(v)}`).join("");
+      s("path", { d, fill: "none", stroke: series[0].color, "stroke-width": 1, opacity: 0.12 }, g);
+    }
+  }
   for (const se of series) {
     if (!se.band) continue;
     const top = se.band.map((b) => `${x(b.x)},${y(b.hi)}`);
@@ -248,12 +258,30 @@ function renderTiles() {
   }
 }
 
-function scenarioRows(growth, model) {
-  const g = Math.round(growth * 10) / 10;
-  return Object.fromEntries(
-    DATA.scenario_grid.filter((r) => r.growth === g && r.model === model).map((r) => [r.city, r]),
-  );
+// The effect is linear in log1p(growth), so the exported 1%/yr draws rescale exactly to any constant rate.
+function unitValues(growth, model, city, n) {
+  const scale = Math.log1p(growth / 100) / Math.log1p(0.01);
+  const base = DATA.base_values[city];
+  return DATA.unit_paths[model][city].slice(0, n).map((path) => [base, ...path.map((e) => base * Math.exp(e * scale))]);
 }
+
+// Same shape as a scenario_grid row, rounded to $100 like the exported bands.
+function unitRows(growth, model) {
+  return Object.fromEntries(DATA.cities.map((city) => {
+    const paths = unitValues(growth, model, city);
+    const n = paths.length;
+    const cols = paths[0].map((_, t) => paths.map((p) => p[t]).sort((a, b) => a - b));
+    const pick = (at) => cols.map((c) => Math.round(at(c) / 100) * 100);
+    return [city, {
+      p5: pick((c) => c[Math.floor(0.05 * n)]),
+      median: pick((c) => (c[Math.floor((n - 1) / 2)] + c[Math.ceil((n - 1) / 2)]) / 2),
+      p95: pick((c) => c[Math.ceil(0.95 * n) - 1]),
+    }];
+  }));
+}
+
+// Two decimals only when the rate is off the slider's 0.1 grid, e.g. the Recent preset.
+const rateText = (g) => pct(g, Math.abs(g * 10 - Math.round(g * 10)) < 1e-9 ? 1 : 2);
 
 // A path preset (state.path) replaces the constant rate on the slider.
 function activePath() {
@@ -267,7 +295,7 @@ function pathAverage(path) {
 // Residents and households are rounded to the nearest 10: the inputs are not precise to the unit.
 function renderPeople(path) {
   const rate = path ? 100 * path.growth[0] : state.growth;
-  const subject = path ? `The state projection's first year, ${pct(rate)}/yr,` : `${pct(rate)}/yr`;
+  const subject = path ? `The state projection's first year, ${pct(rate)}/yr,` : `${rateText(rate)}/yr`;
   const round10 = (v) => Math.round(v / 10) * 10;
   const n = (v) => v.toLocaleString("en-US");
   const residents = round10(Math.abs((DATA.population_latest.count * rate) / 100));
@@ -293,7 +321,7 @@ function readHash(presets) {
   const key = q.get("p");
   if (key === "dof") state.path = "dof";
   else if (Object.hasOwn(presets, key)) state.growth = presets[key].growth;
-  if (state.path !== "dof" && /^-?\d+(\.\d+)?$/.test(q.get("g") ?? "")) {
+  else if (/^-?\d+(\.\d+)?$/.test(q.get("g") ?? "")) {
     const g = Math.round(+q.get("g") * 10) / 10;
     if (g >= +slider.min && g <= +slider.max) state.growth = g;
   }
@@ -302,13 +330,16 @@ function readHash(presets) {
 
 function renderExplorer() {
   const path = activePath();
-  const rows = path ? path[state.model] : scenarioRows(state.growth, state.model);
-  const flat = scenarioRows(0, state.model);
+  const rows = path ? path[state.model] : unitRows(state.growth, state.model);
+  // Unit draws rescale only a constant rate, so the state projection keeps its band.
+  const futures = state.futures && !path
+    ? Object.fromEntries(DATA.cities.map((c) => [c, unitValues(state.growth, state.model, c, FUTURES)]))
+    : null;
   const growth = path ? pathAverage(path) : state.growth;
-  const rateLabel = path ? "State projection" : `${pct(growth)}/yr population`;
+  const rateLabel = path ? "State projection" : `${rateText(growth)}/yr population`;
   const years = Array.from({ length: DATA.horizon + 1 }, (_, i) => DATA.base_year + i);
   const end = DATA.base_year + DATA.horizon;
-  document.getElementById("growth-out").textContent = path ? "State projection" : pct(state.growth) + "/yr";
+  document.getElementById("growth-out").textContent = path ? "State projection" : rateText(state.growth) + "/yr";
   const outside = !path && (state.growth < DATA.support.lo || state.growth > DATA.support.hi);
   document.getElementById("support-note").textContent = outside
     ? "Few California counties sustained this rate for a decade. Treat this as a stretch, not a scenario."
@@ -333,12 +364,16 @@ function renderExplorer() {
     h("p", { class: "range" }, card, `90% range ${usd(r.p5.at(-1))} to ${usd(r.p95.at(-1))} · county population ${pct(popChange)} over ${DATA.horizon} years`);
     const own = (v) => usd((state.value * v) / base);
     h("p", { class: "home" }, card, `A ${usd(state.value)} home: ${own(med)} (range ${own(r.p5.at(-1))} to ${own(r.p95.at(-1))})`);
+    if (futures) {
+      const above = futures[city].filter((v) => v.at(-1) > base).length;
+      h("p", { class: "range" }, card, `In ${above} of ${FUTURES} simulated futures the value is above today's.`);
+    }
   }
 
   const charts = document.getElementById("explorer-charts");
   charts.replaceChildren();
   // Both cities share one y-range so their charts compare directly.
-  const vals = DATA.cities.flatMap((c) => [...rows[c].p5, ...rows[c].p95, DATA.base_values[c]]);
+  const vals = DATA.cities.flatMap((c) => [...rows[c].p5, ...rows[c].p95, DATA.base_values[c], ...(futures ? futures[c].flat() : [])]);
   const lo = Math.min(...vals);
   const hi = Math.max(...vals);
   const color = css("--series-1");
@@ -351,7 +386,7 @@ function renderExplorer() {
       subtitle: `Typical home value, ${DATA.base_year} dollars`,
       legendItems: [
         { name: rateLabel, color },
-        { name: "90% range", color, kind: "band" },
+        futures ? { name: `${FUTURES} simulated futures`, color, kind: "band" } : { name: "90% range", color, kind: "band" },
       ],
       height: 300,
       yDomain: [lo, hi],
@@ -359,9 +394,10 @@ function renderExplorer() {
       series: [{
         name: city, color,
         points: years.map((yr, i) => ({ x: yr, y: r.median[i] })),
-        band: years.map((yr, i) => ({ x: yr, lo: r.p5[i], hi: r.p95[i] })),
+        band: futures ? undefined : years.map((yr, i) => ({ x: yr, lo: r.p5[i], hi: r.p95[i] })),
         endLabel: usdK(r.median.at(-1)),
       }],
+      spaghetti: futures?.[city],
       ref: { y: DATA.base_values[city], label: "Flat population", labelAbove: growth < 0 },
       xTicks: years.filter((yr) => (yr - DATA.base_year) % 2 === 0),
       tooltip: (yr) => {
@@ -369,7 +405,7 @@ function renderExplorer() {
         return [
           [color, "middle estimate", usd(r.median[i])],
           [null, "90% range", `${usdK(r.p5[i])}–${usdK(r.p95[i])}`],
-          [css("--text-muted"), "flat population", usd(flat[city].median[i])],
+          [css("--text-muted"), "flat population", usd(DATA.base_values[city])],
         ];
       },
     });
@@ -380,7 +416,7 @@ function renderExplorer() {
     document.getElementById("explorer-table"),
     ["Scenario", ...DATA.cities.flatMap((c) => [`${c} ${end}`, "Change"])],
     [
-      ...DATA.presets.map((p) => tableRow(`${p.label} (${pct(p.growth, 2)}/yr)`, scenarioRows(p.growth, state.model))),
+      ...DATA.presets.map((p) => tableRow(`${p.label} (${pct(p.growth, 2)}/yr)`, unitRows(p.growth, state.model))),
       tableRow(DATA.scenario_paths.dof.label, DATA.scenario_paths.dof[state.model]),
     ],
     [1, 2, 3, 4],
@@ -399,8 +435,8 @@ function setupControls() {
   const valueEl = document.getElementById("home-value");
   const baseValue = DATA.base_values["Grass Valley"];
   const defaultGrowth = DATA.presets.find((p) => p.key === "recent").growth;
-  // The grid step is 0.1, so a preset is "pressed" when it snaps to the same grid point as the slider.
-  const snap = (g) => Math.round(g * 10);
+  // Readouts use the exact rate, so a preset is pressed only at its own rate, not at the nearest slider step.
+  const same = (a, b) => Math.abs(a - b) < 1e-9;
   const buttons = DATA.presets.map((p) => {
     const b = h("button", { type: "button", "aria-pressed": "false" }, presetEl, `${p.label} ${pct(p.growth, 2)}`);
     b.addEventListener("click", () => {
@@ -433,16 +469,21 @@ function setupControls() {
     state.path = "dof";
     sync();
   });
+  const futuresBtn = document.getElementById("futures");
+  futuresBtn.addEventListener("click", () => {
+    state.futures = !state.futures;
+    sync();
+  });
 
   function writeHash() {
     const q = new URLSearchParams();
     if (state.model !== "peer") q.set("m", state.model);
     if (state.dollars !== "real") q.set("d", state.dollars);
     if (state.path) q.set("p", state.path);
-    else if (snap(state.growth) !== snap(defaultGrowth)) {
-      q.set("g", String(Math.round(state.growth * 10) / 10));
-      const hit = DATA.presets.find((p) => snap(p.growth) === snap(state.growth));
+    else if (!same(state.growth, defaultGrowth)) {
+      const hit = DATA.presets.find((p) => same(p.growth, state.growth));
       if (hit) q.set("p", hit.key);
+      else q.set("g", String(Math.round(state.growth * 10) / 10));
     }
     if (state.value !== baseValue) q.set("v", String(state.value));
     const hash = q.toString();
@@ -450,7 +491,7 @@ function setupControls() {
   }
 
   function sync() {
-    for (const [b, p] of buttons) b.setAttribute("aria-pressed", String(!state.path && snap(p.growth) === snap(state.growth)));
+    for (const [b, p] of buttons) b.setAttribute("aria-pressed", String(!state.path && same(p.growth, state.growth)));
     for (const c of modelEl.children) c.setAttribute("aria-checked", String(c.dataset.m === state.model));
     for (const c of dollarsEl.children) c.setAttribute("aria-checked", String(c.dataset.d === state.dollars));
     slider.value = state.growth;
@@ -458,6 +499,8 @@ function setupControls() {
     pathBtn.setAttribute("aria-pressed", String(!!state.path));
     slider.disabled = !!state.path;
     slider.setAttribute("aria-disabled", String(!!state.path));
+    futuresBtn.setAttribute("aria-checked", String(state.futures));
+    futuresBtn.disabled = !!state.path;
     renderExplorer();
   }
 

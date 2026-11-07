@@ -82,3 +82,38 @@ def test_explained_population_part_within_actual():
         assert abs(e["population_pct"]) < abs(e["actual_pct"])
         assert e["population_lo"] <= e["population_pct"] <= e["population_hi"]
         assert abs(e["other_pct"] - (e["actual_pct"] - e["population_pct"])) < 0.01
+
+
+def test_grid_equals_scaled_unit_paths():
+    data = json.loads((ROOT / "site/data.json").read_text())
+    import numpy as np
+    for row in data["scenario_grid"]:
+        if row["growth"] in (-0.5, 0.0, 1.0):
+            paths = np.array(data["unit_paths"][row["model"]][row["city"]])
+            scale = np.log1p(row["growth"] / 100) / np.log1p(0.01)
+            v = data["base_values"][row["city"]] * np.exp(paths * scale)
+            med = np.median(v, axis=0)
+            assert np.allclose(med, row["median"][1:], rtol=0.03)   # 200 vs 1000 draws
+            assert (np.percentile(v, 5, axis=0) <= np.percentile(v, 95, axis=0)).all()
+
+
+def test_unit_paths_shape():
+    import math
+
+    data = _data()
+    for model in ("peer", "all"):
+        for city in data["cities"]:
+            rows = data["unit_paths"][model][city]
+            assert len(rows) == 200 and all(len(r) == data["horizon"] for r in rows)
+            assert all(math.isfinite(r[0]) for r in data["unit_paths"]["peer"][city])
+
+
+def test_dof_growth_path_alignment():
+    import csv
+
+    data = _data()
+    with (ROOT / "data/dof_p2a_county.csv").open() as f:
+        pop = {int(r["year"]): float(r["population"]) for r in csv.DictReader(f) if r["fips"] == "06057"}
+    dof = data["scenario_paths"]["dof"]
+    assert abs(dof["growth"][0] - (pop[data["base_year"] + 1] / pop[data["base_year"]] - 1)) < 1e-6
+    assert len(dof["growth"]) == data["horizon"]

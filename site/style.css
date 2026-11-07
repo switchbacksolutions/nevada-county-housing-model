@@ -175,3 +175,7 @@ th { color: var(--text-secondary); font-weight: 600; position: sticky; top: 0; b
 }
 .people-line { color: var(--text-secondary); max-width: 46em; margin: 0 0 16px; }
 .readout .home { font-size: 14px; margin: 6px 0 0; }
+.switch { min-height: 32px; }
+.switch[aria-checked="true"] { background: var(--accent-soft); color: var(--text-primary); font-weight: 600; }
+.switch:disabled { opacity: 0.45; cursor: default; }
+@media (prefers-reduced-motion: reduce) { .spaghetti path { transition: none; } }
