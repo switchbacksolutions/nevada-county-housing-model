@@ -149,7 +149,11 @@ function lineChart(container, opts) {
   }
   const gx = s("g", { class: "axis" }, svg);
   s("line", { x1: m.left, x2: width - m.right, y1: height - m.bottom, y2: height - m.bottom }, gx);
+  // Labels closer than 40px overlap at phone width, so later ones give way.
+  let lastTick = -Infinity;
   for (const t of xTicks || xs) {
+    if (x(t) - lastTick < 40) continue;
+    lastTick = x(t);
     s("text", { x: x(t), y: height - m.bottom + 18, "text-anchor": "middle" }, gx, xFormat(t));
   }
 
@@ -210,7 +214,7 @@ function lineChart(container, opts) {
   });
   hit.addEventListener("blur", () => (cross.setAttribute("visibility", "hidden"), hideTip()));
 
-  // Drawn last so the 12px hit strips sit above the crosshair area.
+  // Hit strips cover only the circle and label rows, so the crosshair stays reachable inside the plot.
   for (const mk of placed) {
     const top = mk.row >= 0 ? 12 + mk.row * LABEL_ROW : m.top;
     const color = css(MARKER_KINDS[mk.kind].color);
@@ -218,7 +222,7 @@ function lineChart(container, opts) {
     s("line", { class: "marker-line", x1: x(mk.x), x2: x(mk.x), y1: top, y2: height - m.bottom }, g);
     s("circle", { cx: x(mk.x), cy: top, r: 3.5, fill: color }, g);
     if (mk.row >= 0) s("text", { class: "marker-label", x: x(mk.x) + 8, y: top, "dominant-baseline": "middle" }, g, clip(mk.label));
-    s("rect", { x: x(mk.x) - 6, y: top - 6, width: 12, height: height - m.bottom - top + 6, fill: "transparent" }, g);
+    s("rect", { x: x(mk.x) - 6, y: top - 6, width: 12, height: Math.max(m.top - top, 6) + 6, fill: "transparent" }, g);
     g.addEventListener("pointermove", (evt) => showTip(evt, xFormat(mk.x), mk.rows));
     g.addEventListener("pointerleave", hideTip);
   }
@@ -366,7 +370,9 @@ function renderExplorer() {
     h("p", { class: "home" }, card, `A ${usd(state.value)} home: ${own(med)} (range ${own(r.p5.at(-1))} to ${own(r.p95.at(-1))})`);
     if (futures) {
       const above = futures[city].filter((v) => v.at(-1) > base).length;
-      h("p", { class: "range" }, card, `In ${above} of ${FUTURES} simulated futures the value is above today's.`);
+      h("p", { class: "range" }, card, state.growth === 0
+        ? `At ${rateText(0)}/yr every simulated future equals today's value.`
+        : `In ${above} of ${FUTURES} simulated futures the value is above today's.`);
     }
   }
 
@@ -545,6 +551,7 @@ function historyMarkers() {
   for (const e of DATA.events) byYear.set(e.year, [...(byYear.get(e.year) ?? []), e]);
   return [...byYear].map(([year, events]) => ({
     x: year,
+    // A year with mixed kinds takes the first (earliest) event's color.
     kind: events[0].kind,
     label: events.map((e) => e.label).join(" · "),
     rows: events.map((e) => [css(MARKER_KINDS[e.kind].color), e.label, e.date.length > 4 ? EVENT_DATE.format(new Date(e.date)) : e.date]),
@@ -561,19 +568,22 @@ function renderHistory() {
   const field = (k) => (sticker && k !== "population" ? `${k}_nominal` : k);
   const idx = (r, k) => (100 * r[field(k)]) / base[field(k)];
   const cities = keys.filter((k) => k !== "population");
-  lineChart(document.getElementById("history-chart"), {
+  const chartEl = document.getElementById("history-chart");
+  // End labels need 150px; on a narrow screen the legend names the series instead.
+  const narrow = chartEl.clientWidth < 520;
+  lineChart(chartEl, {
     title: sticker
       ? `Indexed to ${base.year} = 100, home values at sticker price`
       : `Indexed to ${base.year} = 100, home values after inflation`,
     legendItems: keys.map((k) => ({ name: names[k], color: colors[k] })),
     markers: historyMarkers(),
     height: 360,
-    rightMargin: 150,
+    rightMargin: narrow ? 64 : 150,
     yFormat: (v) => v.toFixed(0),
     series: keys.map((k) => ({
       name: names[k], color: colors[k],
       points: hist.map((r) => ({ x: r.year, y: idx(r, k) })),
-      endLabel: names[k].replace(" home value", ""),
+      endLabel: narrow ? undefined : names[k].replace(" home value", ""),
     })),
     xTicks: hist.map((r) => r.year).filter((yr) => yr % 4 === 1),
     tooltip: (yr) => {
@@ -610,9 +620,14 @@ function waterfallChart(container, rows) {
   const all = cities.flatMap((c) => [0, rows[c].actual_pct, rows[c].population_lo, rows[c].population_hi, rows[c].other_pct]);
   const yt = niceTicks(Math.min(...all), Math.max(...all), 5);
   const grid = h("div", { class: "multiples" }, container);
-  for (const city of cities) {
+  // Lay out every box before drawing, so each chart measures its final width.
+  const boxes = cities.map((city) => {
     const box = h("div", {}, grid);
     h("p", { class: "chart-title" }, box, city);
+    return box;
+  });
+  for (const [ci, city] of cities.entries()) {
+    const box = boxes[ci];
     const e = rows[city];
     const width = Math.max(box.clientWidth, 300);
     const m = { top: 16, right: 8, bottom: 20, left: 48 };
@@ -789,16 +804,18 @@ const SPEC_LABELS = {
   "all/drop_2020_2022": "All counties, without 2020-2022",
   "all/three_price_lags": "All counties, three price lags",
   "all/sign_split": "All counties, sign split (growth term)",
-  "all/components": "Net migration rate, natural change as control (all counties)",
-  "peer/components": "Net migration rate, natural change as control (peer counties)",
+  "all/components": "Migration rate, natural change control (all)",
+  "peer/components": "Migration rate, natural change control (peer)",
 };
 
 /** Dot-and-range chart. rows: [{spec, lr, lr_lo, lr_hi}], one per line; the headline row is filled. */
 function rangeChart(container, rows, headline) {
   container.replaceChildren();
-  const rowH = 28;
   const width = Math.max(container.clientWidth, 300);
-  const m = { top: 8, right: 16, bottom: 28, left: Math.min(230, width * 0.42) };
+  // At phone width a left label column would squeeze the plot, so each label sits above its row.
+  const stacked = width < 520;
+  const rowH = stacked ? 44 : 28;
+  const m = { top: 8, right: 16, bottom: 28, left: stacked ? 16 : Math.min(230, width * 0.42) };
   const height = m.top + m.bottom + rowH * rows.length;
   const xt = niceTicks(Math.min(0, ...rows.map((r) => r.lr_lo)), Math.max(...rows.map((r) => r.lr_hi)), 5);
   const x = linear([xt.lo, xt.hi], [m.left, width - m.right]);
@@ -809,13 +826,17 @@ function rangeChart(container, rows, headline) {
     s("text", { x: x(v), y: height - m.bottom + 18, "text-anchor": "middle" }, ax, v.toFixed(1) + "%");
   }
   rows.forEach((r, i) => {
-    const cy = m.top + rowH * (i + 0.5);
+    const rowTop = m.top + rowH * i;
+    const cy = stacked ? rowTop + 30 : rowTop + rowH / 2;
     const isHead = r.spec === headline;
     const g = s("g", { tabindex: 0 }, svg);
-    s("text", { class: "direct-label", x: m.left - 10, y: cy, "text-anchor": "end", "dominant-baseline": "middle" }, g, SPEC_LABELS[r.spec] || r.spec);
+    const label = stacked
+      ? { x: m.left, y: rowTop + 12, "text-anchor": "start" }
+      : { x: m.left - 10, y: cy, "text-anchor": "end" };
+    s("text", { class: "direct-label", ...label, "dominant-baseline": "middle" }, g, SPEC_LABELS[r.spec] || r.spec);
     s("line", { x1: x(r.lr_lo), x2: x(r.lr_hi), y1: cy, y2: cy, stroke: css("--series-1"), "stroke-width": 2, "stroke-linecap": "round" }, g);
     s("circle", { cx: x(r.lr), cy, r: 5, fill: isHead ? css("--series-1") : css("--surface-1"), stroke: css("--series-1"), "stroke-width": 2 }, g);
-    s("rect", { x: 0, y: cy - rowH / 2, width, height: rowH, fill: "transparent" }, g);
+    s("rect", { x: 0, y: rowTop, width, height: rowH, fill: "transparent" }, g);
     const show = (evt) => showTip(evt, SPEC_LABELS[r.spec] || r.spec, [[css("--series-1"), "Estimate", `${r.lr.toFixed(2)}%`], [css("--series-1"), "90% range", `${r.lr_lo.toFixed(2)} to ${r.lr_hi.toFixed(2)}`]]);
     g.addEventListener("pointermove", show);
     g.addEventListener("pointerleave", hideTip);
