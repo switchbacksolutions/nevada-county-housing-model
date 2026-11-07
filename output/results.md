@@ -39,24 +39,25 @@ Long-run elasticity with lagged population: 0.47 (90% interval -0.13 to 0.97).
 
 ## Local projections
 
-Each row is a separate fit: the log real price change from the year before to h years after, on this
-year's population growth, with the same controls and county and year fixed effects. Each horizon also
-holds population growth in the next h years fixed, so the value is the cumulative price change in percent
-for a one-year 1% population change with later growth unchanged. Intervals come from 1,000
-county block bootstrap resamples; every horizon is refit on the same resample.
+Each row is a separate fit: the log real price change from the year before a population change through
+the end of year n, where year 1 is the year of the change itself, on that year's population growth, with
+the same controls and county and year fixed effects. Each fit also holds population growth in the later
+years of the window fixed, so the value is the cumulative price change in percent for a one-year 1%
+population change with later growth unchanged. Intervals come from 1,000 county block bootstrap
+resamples; every horizon is refit on the same resample.
 
 | Years after the change | Peer counties | 90% interval | All counties | 90% interval |
 |---:|---:|---|---:|---|
-| 0 | 0.82 | 0.40 to 1.38 | 1.36 | 1.00 to 1.77 |
-| 1 | 1.06 | 0.40 to 1.72 | 2.06 | 1.64 to 2.54 |
-| 2 | 1.08 | 0.12 to 2.00 | 2.56 | 1.99 to 3.18 |
-| 3 | 1.01 | -0.18 to 2.31 | 2.76 | 1.95 to 3.63 |
-| 4 | 1.54 | 0.05 to 3.17 | 3.30 | 2.26 to 4.34 |
-| 5 | 1.46 | -0.34 to 3.51 | 2.97 | 1.65 to 4.39 |
-| 6 | 1.22 | -0.63 to 3.21 | 2.37 | 1.16 to 3.68 |
-| 7 | 1.18 | -0.60 to 3.38 | 1.84 | 0.51 to 3.44 |
-| 8 | 1.16 | -0.72 to 3.20 | 1.62 | 0.37 to 3.01 |
-| 9 | 1.15 | -0.60 to 3.13 | 1.59 | 0.45 to 3.01 |
+| 1 | 0.82 | 0.40 to 1.38 | 1.36 | 1.00 to 1.77 |
+| 2 | 1.06 | 0.40 to 1.72 | 2.06 | 1.64 to 2.54 |
+| 3 | 1.08 | 0.12 to 2.00 | 2.56 | 1.99 to 3.18 |
+| 4 | 1.01 | -0.18 to 2.31 | 2.76 | 1.95 to 3.63 |
+| 5 | 1.54 | 0.05 to 3.17 | 3.30 | 2.26 to 4.34 |
+| 6 | 1.46 | -0.34 to 3.51 | 2.97 | 1.65 to 4.39 |
+| 7 | 1.22 | -0.63 to 3.21 | 2.37 | 1.16 to 3.68 |
+| 8 | 1.18 | -0.60 to 3.38 | 1.84 | 0.51 to 3.44 |
+| 9 | 1.16 | -0.72 to 3.20 | 1.62 | 0.37 to 3.01 |
+| 10 | 1.15 | -0.60 to 3.13 | 1.59 | 0.45 to 3.01 |
 
 **Price change after 10 years for 1% more people, peer counties: 1.15** (90% interval -0.60 to 3.13).
 
@@ -64,7 +65,7 @@ county block bootstrap resamples; every horizon is refit on the same resample.
 
 Log real price change on log population change over non-overlapping windows, with window-end year
 effects and standard errors clustered by county.
-The 10-year long-difference coefficient is the direct estimate of the horizon the scenarios show.
+The 10-year long-difference coefficient measures the same horizon without the momentum, income and permit controls, over two non-overlapping windows per county.
 
 | Window (years) | Peer counties (s.e.) | Windows | All counties (s.e.) | Windows |
 |---:|---:|---:|---:|---:|
@@ -72,7 +73,7 @@ The 10-year long-difference coefficient is the direct estimate of the horizon th
 | 5 | 0.52 (0.19) | 135 | 0.87 (0.19) | 275 |
 | 10 | 0.15 (0.16) | 54 | 0.59 (0.19) | 110 |
 
-Applied to a sustained 10-year path, the sum of the h = 0 to 9 responses implies 1.18
+Applied to a sustained 10-year path, the sum of the year 1 to 10 responses implies 1.18
 for peer counties and 2.25 for all counties, against 10-year long-difference coefficients of
 0.15 and 0.59.
 
@@ -144,7 +145,7 @@ Annual log change in each city's real Zillow Home Value Index on the Nevada Coun
 Each scenario holds Nevada County population growth at a constant rate. Each year's growth is
 combined with the local-projection response at every later horizon. Every other driver stays
 where it was in 2025, so the 2035 value is the 2025 value plus the population effect only.
-It is not a forecast of the market. Ranges come from 1,000 county bootstrap resamples of the peer-county local projections.
+It is not a forecast of the market. Ranges combine 1,000 county bootstrap resamples of the peer-county local projections with draws of the city pass-through coefficient.
 The last column uses the local projections fit on all counties.
 
 | Scenario | 10-yr population change | City | 2035 value | Effect vs. flat population | 90% range | All-counties effect |

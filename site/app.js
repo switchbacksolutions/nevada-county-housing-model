@@ -430,7 +430,7 @@ function renderImpulse() {
     legendItems: spec.map(([, name, color]) => ({ name, color })).concat([{ name: "90% range, direct estimate", color: spec[0][2], kind: "band" }]),
     height: 320,
     yFormat: (v) => v.toFixed(1) + "%",
-    xFormat: (v) => (v === 0 ? "Arrival" : `Year ${v}`),
+    xFormat: (v) => (v === 0 ? "Year before" : `Year ${v}`),
     xTicks: yrs.filter((v) => v % 2 === 0),
     rightMargin: 64,
     series: spec.map(([k, name, color]) => ({
@@ -446,8 +446,8 @@ function renderImpulse() {
   });
   table(
     document.getElementById("impulse-table"),
-    ["Years after the increase", "Direct estimate", "90% range", "Momentum model"],
-    yrs.map((i) => [i, pct(imp.lp.median[i], 2), `${imp.lp.p5[i].toFixed(2)} to ${imp.lp.p95[i].toFixed(2)}`, pct(imp.ar1.median[i], 2)]),
+    ["Years after the increase (1 = same year)", "Direct estimate", "90% range", "Momentum model"],
+    yrs.slice(1).map((i) => [i, pct(imp.lp.median[i], 2), `${imp.lp.p5[i].toFixed(2)} to ${imp.lp.p95[i].toFixed(2)}`, pct(imp.ar1.median[i], 2)]),
     [1, 2, 3],
   );
 }

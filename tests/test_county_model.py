@@ -80,3 +80,26 @@ def test_bootstrap_slopes_match_dummy_fit():
     sizes = d.groupby("fips", sort=False).size().to_numpy()
     slopes = cm._fe_slopes(d["y"].to_numpy(), np.column_stack([d[cols].to_numpy(), years]), sizes)
     np.testing.assert_allclose(slopes[:len(cols)], res.params[cols], rtol=1e-8)
+
+def test_lp_conditions_on_later_growth():
+    # Persistent population growth, no price momentum: the conditional response is b at every horizon.
+    rng, b, phi, rows = np.random.default_rng(3), 1.5, 0.7, []
+    for c in range(60):
+        fe, g = rng.normal(0, 0.01), 0.0
+        for t in range(30):
+            g = 0.0015 + phi * g + rng.normal(0, 0.01)
+            rows.append(dict(fips=f"{c:05d}", year=2001 + t, dlpop=g, dlp=fe + b * g + rng.normal(0, 0.02),
+                             dlinc=rng.normal(0, 0.02), permits_pk_lag=rng.uniform(0, 5)))
+    p = pd.DataFrame(rows)
+    p["dlp_lag"] = p.groupby("fips")["dlp"].shift()
+    p["lrp"] = p.groupby("fips")["dlp"].cumsum()
+
+    cond = np.median(cm.lp_draws(p, "dlpop", n_boot=100, horizons=[3], seed=0)[:, 0])
+    assert abs(cond - b) < 0.3
+
+    d, cols = cm._lp_frame(p, "dlpop", 3)
+    cols = [c for c in cols if not c.startswith("lead_")]
+    years = pd.get_dummies(d["year"].astype(str), drop_first=True, dtype=float).to_numpy()
+    sizes = d.groupby("fips", sort=False).size().to_numpy()
+    uncond = cm._fe_slopes(d["y"].to_numpy(), np.column_stack([d[cols].to_numpy(), years]), sizes)[0]
+    assert uncond > cond + 1.0
