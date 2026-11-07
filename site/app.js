@@ -740,7 +740,7 @@ function renderSpecCurve() {
   rangeChart(document.getElementById("spec-chart"), DATA.spec_curve, "peer/same_year");
   const c = DATA.components.peer;
   document.getElementById("spec-components").textContent =
-    `Splitting population growth into net migration and natural change (births minus deaths) gives a migration coefficient of ${c.b_mig.toFixed(2)} on the peer set; natural change, which cannot respond to this year's prices, has a coefficient of ${c.b_natural.toFixed(2)}. The large negative natural-change coefficient reflects county age structure, not a price response.`;
+    `Splitting population growth into net migration and natural change (births minus deaths) gives a migration coefficient of ${c.b_mig.toFixed(2)} on the peer set; natural change, which cannot respond to this year's prices, has a coefficient of ${c.b_natural.toFixed(2)}. The large negative natural-change coefficient comes from within-county timing, above all the 2020-2021 death surge in older counties while prices rose; it reflects age structure, not a price response.`;
 }
 
 function renderAll() {
