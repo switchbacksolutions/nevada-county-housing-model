@@ -75,7 +75,7 @@ def test_validation_exported_and_stated_without_causal_claim():
     assert sentence in (ROOT / "site/index.html").read_text()
 
 
-def test_explained_is_small_share():
+def test_explained_population_part_within_actual():
     data = _data()
     for city in ("Grass Valley", "Nevada City"):
         e = data["explained"][city]

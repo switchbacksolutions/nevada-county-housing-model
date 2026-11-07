@@ -426,7 +426,6 @@ function setupControls() {
       state.dollars = key;
       sync();
       renderHistory();
-  renderExplained();
     });
   }
   const pathBtn = h("button", { type: "button", "aria-pressed": "false" }, presetEl, "State projection");
@@ -619,7 +618,7 @@ function renderExplained() {
   const hi = Math.max(...cities.map((c) => ex[c].population_hi));
   document.getElementById("explained-lede").textContent =
     `The county grew about ${grew.toFixed(0)}% since ${first.start_year}. Run through the model's own arithmetic, that growth goes with roughly ${share(c1)}% of ${c1}'s ${ex[c1].actual_pct.toFixed(0)}% real price change and ${share(c2)}% of ${c2}'s ${ex[c2].actual_pct.toFixed(0)}%. ` +
-    `The 90% range on the population part runs from ${lo.toFixed(0)}% to ${hi.toFixed(0)}%, so it crosses zero. ` +
+    `The 90% range on the population part runs from ${lo.toFixed(0)}% to ${hi.toFixed(0)}%, ${lo < 0 && hi > 0 ? "so it crosses zero" : "so it stays on one side of zero"}. ` +
     "The rest is other forces the model holds fixed: mortgage rates, incomes, the pandemic, insurance. Responses beyond ten years after a change hold the ten-year value.";
   waterfallChart(document.getElementById("explained-chart"), ex);
   table(
@@ -827,6 +826,7 @@ function renderAll() {
   renderTiles();
   renderExplorer();
   renderHistory();
+  renderExplained();
   renderCounties();
   renderImpulse();
   renderMethod();
