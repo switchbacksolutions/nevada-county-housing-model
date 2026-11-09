@@ -1,0 +1,128 @@
+import numpy as np, pandas as pd, pytest
+from analysis import county_model as cm
+
+def make_panel(n_c=40, T=24, b=1.5, rho=0.3, seed=1):
+    """AR(1) price growth driven by population growth plus county and year effects."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    for c in range(n_c):
+        fe, dlp = rng.normal(0, 0.01), 0.0
+        pop = rng.uniform(50_000, 500_000)
+        for t in range(T):
+            dlpop = rng.normal(0.005, 0.01)
+            dlp = fe + b * dlpop + rho * dlp + rng.normal(0, 0.02)
+            pop *= np.exp(dlpop)
+            rows.append(dict(fips=f"{c:05d}", year=2001 + t, dlp=dlp, dlpop=dlpop, dlinc=rng.normal(0, 0.02),
+                             permits_pk_lag=rng.uniform(0, 5), population=pop))
+    p = pd.DataFrame(rows)
+    p["dlp_lag"] = p.groupby("fips")["dlp"].shift()
+    p["dlpop_lag"] = p.groupby("fips")["dlpop"].shift()
+    return p
+
+def test_fit_panel_recovers_b_and_rho():
+    res = cm.fit_panel(make_panel(), "dlpop")
+    assert abs(res.params["dlpop"] - 1.5) < 0.25
+    assert abs(res.params["dlp_lag"] - 0.3) < 0.08
+
+def test_coef_draws_are_deterministic():
+    res = cm.fit_panel(make_panel(), "dlpop")
+    a = cm.coef_draws(res, ["dlpop", "dlp_lag"], 500)
+    b = cm.coef_draws(res, ["dlpop", "dlp_lag"], 500)
+    assert np.array_equal(a, b) and a.shape == (500, 2)
+
+def test_peer_counties_uses_mean_population():
+    p = make_panel()
+    peers = cm.peer_counties(p, max_pop=200_000)
+    means = p.groupby("fips")["population"].mean()
+    assert set(peers) == set(means[means < 200_000].index)
+
+def test_spec_curve_has_all_specs():
+    p = make_panel()
+    p["dlp_lag2"] = p.groupby("fips")["dlp"].shift(2)
+    p["dlp_lag3"] = p.groupby("fips")["dlp"].shift(3)
+    p["dlpop_pos"] = p["dlpop"].clip(lower=0)
+    p["dlpop_neg"] = p["dlpop"].clip(upper=0)
+    rng = np.random.default_rng(3)
+    p["r_mig"] = p["dlpop"] - 0.002 + rng.normal(0, 0.003, len(p))
+    p["r_natural"] = 0.002 + rng.normal(0, 0.001, len(p))
+    curve = cm.spec_curve(p, n=200)
+    assert len(curve) == 12 and {"all/components", "peer/components"} <= set(curve["spec"])
+    assert list(curve["spec"]) == [name for name, _ in cm.SPECS]
+    assert (curve["lr_lo"] <= curve["lr"]).all() and (curve["lr"] <= curve["lr_hi"]).all()
+
+def test_path_effect_zero_growth_is_zero():
+    imp = np.random.default_rng(0).normal(size=(50, 10))
+    out = cm.path_effect(imp, np.zeros(10))
+    assert out.shape == (50, 10) and np.all(out == 0)
+
+def test_path_effect_is_linear_in_log_growth():
+    imp = np.random.default_rng(0).normal(size=(50, 10))
+    a = cm.path_effect(imp, np.full(10, 0.01))
+    b = cm.path_effect(imp, np.full(10, 0.02))
+    np.testing.assert_allclose(b, a * np.log1p(0.02) / np.log1p(0.01))
+
+def test_path_effect_matches_manual_convolution():
+    imp = np.arange(1, 4, dtype=float).reshape(1, 3)      # [1, 2, 3]
+    out = cm.path_effect(imp, np.array([np.e - 1, 0.0, 0.0]))  # log1p = 1 in year 0 only
+    np.testing.assert_allclose(out[0], [1, 2, 3])
+
+def test_lp_draws_recover_ar1_impulse():
+    p = make_panel(n_c=60, T=30, b=1.5, rho=0.3)
+    p["lrp"] = p.groupby("fips")["dlp"].cumsum()
+    draws = cm.lp_draws(p, "dlpop", n_boot=100, horizons=range(0, 4), seed=0)
+    med = np.median(draws, axis=0)
+    expected = 1.5 * np.cumsum(0.3 ** np.arange(4))   # 1.5, 1.95, 2.085, 2.1255
+    np.testing.assert_allclose(med, expected, atol=0.35)
+
+def test_bootstrap_slopes_match_dummy_fit():
+    p = make_panel()
+    p["lrp"] = p.groupby("fips")["dlp"].cumsum()
+    res = cm.fit_local_projection(p, "dlpop", 2)
+    d = res.sample
+    cols = ["dlpop", "lead_1", "lead_2", *cm.LP_CONTROLS]
+    years = pd.get_dummies(d["year"].astype(str), drop_first=True, dtype=float).to_numpy()
+    sizes = d.groupby("fips", sort=False).size().to_numpy()
+    slopes = cm._fe_slopes(d["y"].to_numpy(), np.column_stack([d[cols].to_numpy(), years]), sizes)
+    np.testing.assert_allclose(slopes[:len(cols)], res.params[cols], rtol=1e-8)
+
+def test_origin_years_fix_the_sample_across_horizons():
+    p = make_panel()
+    p["lrp"] = p.groupby("fips")["dlp"].cumsum()
+    for h in (0, 5):
+        d, _ = cm._lp_frame(p, "dlpop", h, origin_years=(2005, 2012))
+        assert set(d["year"]) == set(range(2005, 2013))
+    res = cm.fit_local_projection(p, "dlpop", 5, origin_years=(2005, 2012))
+    assert res.sample["year"].between(2005, 2012).all()
+    assert cm.lp_draws(p, "dlpop", horizons=[0, 5], n_boot=5, origin_years=(2005, 2012)).shape == (5, 2)
+
+def test_lp_conditions_on_later_growth():
+    # Persistent population growth, no price momentum: the conditional response is b at every horizon.
+    rng, b, phi, rows = np.random.default_rng(3), 1.5, 0.7, []
+    for c in range(60):
+        fe, g = rng.normal(0, 0.01), 0.0
+        for t in range(30):
+            g = 0.0015 + phi * g + rng.normal(0, 0.01)
+            rows.append(dict(fips=f"{c:05d}", year=2001 + t, dlpop=g, dlp=fe + b * g + rng.normal(0, 0.02),
+                             dlinc=rng.normal(0, 0.02), permits_pk_lag=rng.uniform(0, 5)))
+    p = pd.DataFrame(rows)
+    p["dlp_lag"] = p.groupby("fips")["dlp"].shift()
+    p["lrp"] = p.groupby("fips")["dlp"].cumsum()
+
+    cond = np.median(cm.lp_draws(p, "dlpop", n_boot=100, horizons=[3], seed=0)[:, 0])
+    assert abs(cond - b) < 0.3
+
+    d, cols = cm._lp_frame(p, "dlpop", 3)
+    cols = [c for c in cols if not c.startswith("lead_")]
+    years = pd.get_dummies(d["year"].astype(str), drop_first=True, dtype=float).to_numpy()
+    sizes = d.groupby("fips", sort=False).size().to_numpy()
+    uncond = cm._fe_slopes(d["y"].to_numpy(), np.column_stack([d[cols].to_numpy(), years]), sizes)[0]
+    assert uncond > cond + 1.0
+
+
+def test_rolling_validation_population_helps_when_it_drives_prices():
+    p = make_panel(n_c=60, T=30, b=2.0, rho=0.3, seed=3)
+    p["lrp"] = p.groupby("fips")["dlp"].cumsum()
+    v = cm.rolling_validation(p, "dlpop", first_test_year=2021, horizons=(1,))
+    full = v[(v.model == "full")].iloc[0]; nopop = v[(v.model == "no_population")].iloc[0]
+    assert full.rmse < nopop.rmse and full["corr"] > nopop["corr"]
+    assert set(v.model) == {"full", "no_population", "zero"}

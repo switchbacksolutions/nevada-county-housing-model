@@ -1,7 +1,7 @@
 # Nevada County housing model
 
-Estimates how Nevada County, California, population growth changes typical home values in
-Grass Valley and Nevada City, and projects 10-year population scenarios.
+Estimates how typical home values in Grass Valley and Nevada City move with Nevada County,
+California, population growth, and projects 10-year population scenarios.
 
 **Website:** https://basho-walks.github.io/nevada-county-housing-model/ (interactive scenario
 explorer, history, county comparison, and method).
@@ -9,21 +9,24 @@ explorer, history, county comparison, and method).
 ## Method
 
 1. **County panel (stage 1).** Annual real home-price growth (FHFA county house price index,
-   CPI-deflated) for 55 California counties, 2001-2024, regressed on population growth, last
+   CPI-deflated) for California counties, 2001-2024, regressed on population growth, last
    year's price growth, real per-capita income growth, and last year's permits per 1,000
    residents. County fixed effects remove fixed local differences. Year fixed effects remove
    statewide and national drivers such as mortgage rates. A single county has too few years to
-   measure the population effect, so the panel supplies the elasticity.
+   measure the population association, so the panel supplies the elasticity. The headline uses the
+   counties under 200,000 people, the set that includes Nevada County. The full 55-county panel
+   appears in the specification curve.
 2. **City pass-through (stage 2).** Each city's real Zillow Home Value Index growth is regressed
    on Nevada County real price growth, 2002-2025.
 3. **Scenarios.** Constant population growth paths for 2026-2035. Results show the value change
-   caused by population alone, against a flat-population path. They are not market forecasts.
+   that goes with population alone, against a flat-population path. They are not market forecasts.
 
 ## Limits
 
-- Population and prices affect each other. The same-year model can overstate the effect. The
-  lagged-population model gives roughly half the effect and is the conservative bound.
-- The effect is assumed symmetric. Durable housing usually makes declines hit prices harder.
+- Population and prices affect each other. Both timing versions of the model are associations,
+  not causal effects. A placebo with next year's population growth predicts prices better
+  than last year's does.
+- The effect is assumed symmetric. A split by sign finds no reliable difference.
 - Census has no 2010-2020 intercensal county file. `fetch_data.py` spreads the 2020 estimate
   gap linearly over 2011-2019.
 

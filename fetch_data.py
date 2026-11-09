@@ -4,11 +4,17 @@ The Zillow city file is ~95 MB, so only the Grass Valley and Nevada City rows ar
 """
 
 import csv
+import hashlib
 import io
+import json
+import re
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 from pathlib import Path
 
 import numpy as np
+import openpyxl
 import pandas as pd
 import requests
 
@@ -27,11 +33,21 @@ POP_FILES = {
     "2010s": f"{CENSUS}/2010-2020/counties/totals/co-est2020-alldata.csv",
     "2020s": f"{CENSUS}/2020-2025/counties/totals/co-est2025-alldata.csv",
 }
+# Components of change: 2000-2009 from vintage 2009 (its 2000 column may cover only April to July), 2010-2019 from V2020,
+# 2020 onward from V2025. The V2025 file replaces V2020 for 2020, as for population.
+COMPONENT_FILES = [
+    (f"{CENSUS}/2000-2009/counties/totals/co-est2009-alldata.csv", 2000, 2009),
+    (f"{CENSUS}/2010-2020/counties/totals/co-est2020-alldata.csv", 2010, 2019),
+    (POP_FILES["2020s"], 2020, 2025),
+]
 ZILLOW_URL = (
     "https://files.zillowstatic.com/research/public_csvs/zhvi/"
     "City_zhvi_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv"
 )
 CITIES = {"Grass Valley", "Nevada City"}
+DOF_URL = "https://dof.ca.gov/media/docs/forecasting/Demographics/projections/P2A_County_Total.xlsx"
+# DOF serves an HTML page to clients without a browser User-Agent.
+BROWSER_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 
 
 def fred_series(series_id: str) -> pd.Series:
@@ -85,6 +101,30 @@ def fetch_population() -> pd.DataFrame:
     return pop.stack().rename("population").rename_axis(["fips", "year"]).to_frame()
 
 
+def parse_components(path, year_lo: int, year_hi: int) -> pd.DataFrame:
+    """California county natural change and net migration (domestic plus international) for year_lo..year_hi."""
+    df = pd.read_csv(path, encoding="latin-1", dtype={"STATE": str, "COUNTY": str})
+    df["STATE"], df["COUNTY"] = df["STATE"].str.zfill(2), df["COUNTY"].str.zfill(3)
+    df = df[(df["STATE"] == "06") & (df["COUNTY"] != "000")]
+    # The 2025 vintage renamed NATURALINC to NATURALCHG.
+    natural = "NATURALCHG" if "NATURALCHG2025" in df.columns or "NATURALCHG2020" in df.columns else "NATURALINC"
+    fips = "06" + df["COUNTY"]
+    rows = [
+        pd.DataFrame({
+            "fips": fips.values, "year": y,
+            "natural_change": df[f"{natural}{y}"].values,
+            "net_migration": (df[f"DOMESTICMIG{y}"] + df[f"INTERNATIONALMIG{y}"]).values,
+        })
+        for y in range(year_lo, year_hi + 1)
+    ]
+    return pd.concat(rows, ignore_index=True).astype({"natural_change": int, "net_migration": int})
+
+
+def fetch_components() -> pd.DataFrame:
+    parts = [parse_components(*args) for args in COMPONENT_FILES]
+    return pd.concat(parts, ignore_index=True).set_index(["fips", "year"]).sort_index()
+
+
 def fetch_county_names() -> pd.Series:
     df = pd.read_csv(POP_FILES["2020s"], encoding="latin-1", dtype={"STATE": str, "COUNTY": str})
     df = df[(df["STATE"] == "06") & (df["COUNTY"] != "000")]
@@ -104,7 +144,7 @@ def fetch_panel() -> pd.DataFrame:
     fips_codes = pop.index.get_level_values("fips").unique()
     with ThreadPoolExecutor(8) as pool:
         fred = pd.concat(pool.map(fetch_county_fred, fips_codes))
-    return fred.set_index(["fips", "year"]).join(pop, how="outer").sort_index()
+    return fred.set_index(["fips", "year"]).join(pop, how="outer").join(fetch_components()).sort_index()
 
 
 def fetch_cities() -> pd.DataFrame:
@@ -124,10 +164,47 @@ def fetch_cities() -> pd.DataFrame:
     return annual
 
 
+def dof_vintage(path: Path) -> str:
+    """The parenthetical vintage in the About sheet's suggested citation."""
+    wb = openpyxl.load_workbook(path, read_only=True)
+    for (cell,) in wb["About"].iter_rows(max_col=1, values_only=True):
+        if isinstance(cell, str) and (m := re.search(r"\((Baseline[^)]*)\)", cell)):
+            return m.group(1)
+    raise ValueError("no vintage string in the About sheet")
+
+
+def parse_dof_projection(path: Path) -> pd.DataFrame:
+    """County total population by year from the P-2A Data sheet; the statewide row is dropped."""
+    rows = list(openpyxl.load_workbook(path, read_only=True)["Data"].iter_rows(values_only=True))
+    head = next(i for i, r in enumerate(rows) if r[0] == "FIPS")
+    years = [int(y) for y in rows[head][5:]]
+    out = [
+        {"fips": f"{int(r[0]):05d}", "year": y, "population": v}
+        for r in rows[head + 1 :]
+        if isinstance(r[0], int) and r[0] != 6000
+        for y, v in zip(years, r[5:])
+    ]
+    return pd.DataFrame(out, columns=["fips", "year", "population"])
+
+
+def fetch_dof_projection() -> pd.DataFrame:
+    """Download P-2A, record its hash and vintage in the meta file, and return the parsed table."""
+    r = requests.get(DOF_URL, headers={"User-Agent": BROWSER_UA}, timeout=120)
+    r.raise_for_status()
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "P2A_County_Total.xlsx"
+        path.write_bytes(r.content)
+        df = parse_dof_projection(path)
+        meta = {"url": DOF_URL, "sha256": hashlib.sha256(r.content).hexdigest(), "retrieved": date.today().isoformat(), "vintage": dof_vintage(path)}
+    (DATA / "dof_p2a_county.meta.json").write_text(json.dumps(meta, indent=2) + "\n")
+    return df
+
+
 if __name__ == "__main__":
     DATA.mkdir(exist_ok=True)
     fetch_national().to_csv(DATA / "national_annual.csv")
     fetch_panel().to_csv(DATA / "ca_county_panel.csv")
     fetch_county_names().to_csv(DATA / "ca_county_names.csv")
     fetch_cities().to_csv(DATA / "city_zhvi_annual.csv")
-    print(f"wrote national_annual.csv, ca_county_panel.csv, ca_county_names.csv, city_zhvi_annual.csv to {DATA}")
+    fetch_dof_projection().to_csv(DATA / "dof_p2a_county.csv", index=False)
+    print(f"wrote national_annual.csv, ca_county_panel.csv, ca_county_names.csv, city_zhvi_annual.csv, dof_p2a_county.csv to {DATA}")

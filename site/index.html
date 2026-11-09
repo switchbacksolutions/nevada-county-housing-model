@@ -4,12 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Population and home prices in Grass Valley and Nevada City</title>
-  <meta name="description" content="A statistical model of how Nevada County, California population growth changes home values in Grass Valley and Nevada City.">
+  <meta name="description" content="A statistical model of how home values in Grass Valley and Nevada City move with Nevada County, California population growth.">
   <link rel="stylesheet" href="style.css">
   <script>
     // Apply a saved theme before first paint so the page does not flash.
-    const saved = localStorage.getItem("theme");
-    if (saved) document.documentElement.dataset.theme = saved;
+    try {
+      const saved = localStorage.getItem("theme");
+      if (saved) document.documentElement.dataset.theme = saved;
+    } catch {}
   </script>
 </head>
 <body class="viz-root">
@@ -21,7 +23,7 @@
       </div>
       <h1>When more people move to Nevada County, what happens to home prices in Grass Valley and Nevada City?</h1>
       <p class="lede">
-        This model uses 24 years of data from California counties to measure how population growth changes home values.
+        This model uses 24 years of data from California counties to measure how home values move with population growth.
         It then applies that result to the two cities. All dollar values are in <span data-bind="base_year"></span> dollars, adjusted for inflation.
       </p>
       <div class="tiles" id="tiles"></div>
@@ -39,26 +41,35 @@
         <label class="control slider">
           <span class="control-label">County population growth per year</span>
           <span class="slider-row">
-            <input id="growth" type="range" min="-1" max="3" step="0.1" value="0.4" list="growth-presets" aria-describedby="growth-out">
+            <span class="slider-track" id="slider-track">
+              <input id="growth" type="range" min="-1" max="2" step="0.1" value="0" aria-describedby="growth-out support-note">
+            </span>
             <output id="growth-out" for="growth"></output>
           </span>
-          <datalist id="growth-presets">
-            <option value="-0.5" label="Decline"></option>
-            <option value="0.4" label="Trend"></option>
-            <option value="1" label="Growth"></option>
-            <option value="2" label="Fast"></option>
-          </datalist>
         </label>
         <div class="control">
           <span class="control-label">Presets</span>
-          <div class="segmented" id="presets"></div>
+          <div class="preset-row">
+            <div class="segmented" id="presets"></div>
+            <button type="button" class="ghost" id="copy-link">Copy link to this scenario</button>
+          </div>
         </div>
         <div class="control">
-          <span class="control-label">Estimate</span>
-          <div class="segmented" id="model-choice" role="radiogroup" aria-label="Estimate"></div>
+          <span class="control-label">Counties in the estimate</span>
+          <div class="segmented" id="model-choice" role="radiogroup" aria-label="Counties in the estimate"></div>
         </div>
+        <div class="control">
+          <span class="control-label">Uncertainty</span>
+          <button type="button" class="ghost switch" id="futures" role="switch" aria-checked="false">Show possible futures</button>
+        </div>
+        <label class="control">
+          <span class="control-label">Your home's value today</span>
+          <input id="home-value" type="text" inputmode="numeric" autocomplete="off">
+        </label>
       </div>
+      <p class="people-line" id="people-line" aria-live="polite"></p>
       <div class="readouts" id="readouts" aria-live="polite"></div>
+      <p class="support-note" id="support-note" aria-live="polite"></p>
       <div class="multiples" id="explorer-charts"></div>
       <details class="table-view"><summary>Show scenario table</summary><div id="explorer-table"></div></details>
     </section>
@@ -67,10 +78,22 @@
       <h2 id="history-title">25 years of population and prices</h2>
       <p class="section-lede">
         Population grew slowly and steadily. Home values swung much more, with the 2000s housing bubble, the 2008 crash and the pandemic jump in 2020-2021.
-        Population growth is one cause among several, which is why the model needs data from many counties to measure it.
+        Population growth is one of several forces, which is why the model needs data from many counties to measure it.
+        Markers show events that coincided with turns in the market. They are dates, not causes.
       </p>
+      <div class="control history-control">
+        <span class="control-label">Dollars</span>
+        <div class="segmented" id="dollars-choice" role="radiogroup" aria-label="Dollars"></div>
+      </div>
       <div class="card"><div id="history-chart" class="chart"></div></div>
       <details class="table-view"><summary>Show history table</summary><div id="history-table"></div></details>
+    </section>
+
+    <section aria-labelledby="explained-title">
+      <h2 id="explained-title">How much of the last 25 years goes with population growth?</h2>
+      <p class="section-lede" id="explained-lede"></p>
+      <div class="card"><div id="explained-chart" class="chart"></div></div>
+      <details class="table-view"><summary>Show population-explained table</summary><div id="explained-table"></div></details>
     </section>
 
     <section aria-labelledby="counties-title">
@@ -81,10 +104,10 @@
     </section>
 
     <section aria-labelledby="impulse-title">
-      <h2 id="impulse-title">Prices keep rising for a few years after people arrive</h2>
+      <h2 id="impulse-title">Prices keep moving for a few years after a population change</h2>
       <p class="section-lede">
-        Home prices have momentum. A price rise this year tends to bring more rise next year. So a one-time 1% increase in population
-        lifts prices a little at first, then more over the next three to four years, until the effect levels off.
+        Prices keep moving for a few years after a population change. The direct estimate measures the price change one, two, up to ten years after a one-year population change, horizon by horizon.
+        The momentum model extends a one-year relation. They agree at short horizons. Where they part, the ten-year values are uncertain: a check that regresses ten-year price changes on ten-year population changes gives a much smaller number (see the long-difference check in the full results).
       </p>
       <div class="card"><div id="impulse-chart" class="chart"></div></div>
       <details class="table-view"><summary>Show response table</summary><div id="impulse-table"></div></details>
@@ -94,7 +117,7 @@
       <h2 id="method-title">How the model works</h2>
       <ol>
         <li>
-          <strong>Population effect across California.</strong>
+          <strong>Population and prices across California.</strong>
           <span id="method-panel"></span>
           County effects remove fixed local differences. Year effects remove things that hit every county at once, such as mortgage rates and recessions.
         </li>
@@ -105,23 +128,35 @@
         </li>
         <li>
           <strong>Scenarios.</strong>
-          A constant yearly population growth rate runs through the fitted model for <span data-bind="horizon"></span> years.
-          The shaded range shows 90% of 10,000 simulations that vary the estimated coefficients.
+          Each year of a constant population growth rate is combined with the direct estimate of the price change at every later horizon, for <span data-bind="horizon"></span> years.
+          The middle line is the median, and the shaded range shows 90% of 1,000 county bootstrap resamples, combined with draws of the city pass-through coefficient.
+          These are the same draws as the full results. The possible-futures view shows 40 of them.
         </li>
       </ol>
 
       <h3>Two estimates, and why they differ</h3>
       <p>
-        Population and prices affect each other. People move toward jobs and amenities, and high prices push some people away.
-        The <em>same-year</em> estimate uses this year's population growth and can overstate the effect.
-        The <em>lagged</em> estimate uses last year's population growth, which this year's prices cannot have caused. It is the cautious estimate.
-        The real effect is probably between the two.
+        Population and prices move together, and the data cannot say which moves first. The <em>same-year</em> estimate pairs this year's population change with this year's price change. The <em>lagged</em> estimate pairs last year's population change with this year's price change. A placebo check shows that next year's population change predicts this year's prices better than last year's change does, so neither number is a causal effect or a bound on one. Both are associations under a timing choice.
       </p>
+      <h3>Peer counties, under 200,000 people</h3>
       <div class="coef-tables" id="coef-tables"></div>
+
+      <h3>How much the number moves with the choice of sample</h3>
+      <p>
+        Each row refits the model under one choice and shows the price change for 1% more people (long-run, momentum model) with its 90% range. The filled dot is the peer-county same-year fit. Large counties and the 2000s boom give much bigger numbers than the peer counties.
+      </p>
+      <div class="card"><div id="spec-chart" class="chart"></div></div>
+      <p id="spec-components"></p>
+
+      <h3>Out-of-sample check</h3>
+      <p>
+        For each origin year from <span id="val-start"></span> on, the model is fit on earlier years only and predicts each county's price change over the next 1 and 5 years, as a deviation from the mean of the counties in that sample. The <em>zero</em> row predicts no deviation for every county. RMSE is in log points. Pairs are the pooled county-origin pairs. This tests whether population growth helps rank counties' price growth ahead of time. It is not evidence of causation.
+      </p>
+      <div id="val-table"></div>
 
       <h3>Limits</h3>
       <ul>
-        <li>The model treats a population decline as the mirror image of growth. In practice, declines often hit prices harder, because existing homes do not go away.</li>
+        <li>The model treats a population decline as the mirror image of growth. The data show no reliable difference between growth and decline.</li>
         <li>Census has no corrected 2010-2020 county population series. The model spreads the gap between the 2010s estimates and the 2020 Census over 2011-2019.</li>
         <li>Zillow city values cover all home types at the middle of the market. Individual neighborhoods and home types can move differently.</li>
       </ul>
